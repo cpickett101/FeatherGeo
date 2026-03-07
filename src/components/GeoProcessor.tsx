@@ -1,12 +1,24 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { GDALService } from '../lib/gdalService'
 
 type FileMode = 'geotiff' | 'shapefile'
 
-export function GeoProcessor() {
+interface GeoProcessorProps {
+  onClose: () => void
+}
+
+export function GeoProcessor({ onClose }: GeoProcessorProps) {
   const [status, setStatus] = useState('idle')
   const [mode, setMode] = useState<FileMode>('geotiff')
   const shpFilesRef = useRef<File[]>([])
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [onClose])
 
   const process = async (files: File[]) => {
     setStatus('processing')
@@ -38,37 +50,64 @@ export function GeoProcessor() {
   }
 
   return (
-    <div>
-      <div style={{ marginBottom: 8 }}>
-        <label>
-          <input type="radio" value="geotiff" checked={mode === 'geotiff'}
-            onChange={() => setMode('geotiff')} /> GeoTIFF
-        </label>
-        {' '}
-        <label>
-          <input type="radio" value="shapefile" checked={mode === 'shapefile'}
-            onChange={() => setMode('shapefile')} /> Shapefile
-        </label>
-      </div>
-
-      {mode === 'geotiff' ? (
-        <input type="file" accept=".tif,.tiff" onChange={handleGeoTIFF} />
-      ) : (
-        <div>
-          <input
-            type="file"
-            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj"
-            multiple
-            onChange={handleShapefile}
-          />
-          <small style={{ display: 'block', color: '#666' }}>
-            Select all shapefile components (.shp, .dbf, .shx, etc.) together
-          </small>
+    <>
+      <div className="modal-backdrop" onClick={onClose} />
+      <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="processor-title">
+        <div className="modal-header">
+          <h2 id="processor-title">Geo Processor</h2>
+          <button 
+            className="modal-close"
+            onClick={onClose}
+            aria-label="Close processor"
+          >
+            ×
+          </button>
         </div>
-      )}
 
-      <p>Status: {status}</p>
-    </div>
+        <div className="modal-body">
+          <div className="processor-mode-selector">
+            <label>
+              <input 
+                type="radio" 
+                value="geotiff" 
+                checked={mode === 'geotiff'}
+                onChange={() => setMode('geotiff')} 
+              /> GeoTIFF
+            </label>
+            <label>
+              <input 
+                type="radio" 
+                value="shapefile" 
+                checked={mode === 'shapefile'}
+                onChange={() => setMode('shapefile')} 
+              /> Shapefile
+            </label>
+          </div>
+
+          <div className="processor-file-input">
+            {mode === 'geotiff' ? (
+              <input type="file" accept=".tif,.tiff" onChange={handleGeoTIFF} />
+            ) : (
+              <div>
+                <input
+                  type="file"
+                  accept=".shp,.dbf,.shx,.prj,.cpg,.qpj"
+                  multiple
+                  onChange={handleShapefile}
+                />
+                <small className="processor-hint">
+                  Select all shapefile components (.shp, .dbf, .shx, etc.) together
+                </small>
+              </div>
+            )}
+          </div>
+
+          <div className="processor-status">
+            <strong>Status:</strong> {status}
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 

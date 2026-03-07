@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import MapWithDropzone from './components/MapWithDropzone'
 
 // Lazy load GDAL only when needed
@@ -7,24 +7,31 @@ const GeoProcessor = lazy(() =>
 )
 
 export function App() {
-  const [route, setRoute] = useState(window.location.hash)
-
-  window.onhashchange = () => setRoute(window.location.hash)
+  const [isProcessorOpen, setIsProcessorOpen] = useState(false)
 
   return (
-    <div>
-      <nav>
-        <a href="#/">Map</a> | <a href="#/process">Process</a>
-      </nav>
-
-      {route === '#/process' ? (
-        <Suspense fallback={<p>Loading GDAL...</p>}>
-          <GeoProcessor />
-        </Suspense>
-      ) : (
-        <div style={{ width: '100%', height: '90vh' }}>
-          <MapWithDropzone />
+    <div className="app-shell">
+      <header className="app-header">
+        <div>
+          <p className="app-eyebrow">Feather Geo</p>
+          <h1>Shapefile Viewer</h1>
         </div>
+        <button 
+          className="processor-button"
+          onClick={() => setIsProcessorOpen(true)}
+        >
+          Open Processor
+        </button>
+      </header>
+
+      <main className="app-content">
+        <MapWithDropzone />
+      </main>
+
+      {isProcessorOpen && (
+        <Suspense fallback={<div className="modal-backdrop"><p className="panel loading-panel">Loading GDAL...</p></div>}>
+          <GeoProcessor onClose={() => setIsProcessorOpen(false)} />
+        </Suspense>
       )}
     </div>
   )
