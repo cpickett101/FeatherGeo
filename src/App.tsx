@@ -1,5 +1,6 @@
-import { lazy, Suspense, useState } from 'react'
+import { lazy, Suspense, useState, useRef } from 'react'
 import MapWithDropzone from './components/MapWithDropzone'
+import type { FeatureCollection } from 'geojson'
 
 // Lazy load GDAL only when needed
 const GeoProcessor = lazy(() =>
@@ -8,6 +9,16 @@ const GeoProcessor = lazy(() =>
 
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
+  const [currentData, setCurrentData] = useState<FeatureCollection | null>(null)
+  const mapRef = useRef<{ updateMap: (data: FeatureCollection) => void }>(null)
+
+  const handleDataProcessed = (data: FeatureCollection) => {
+    setCurrentData(data)
+    // Trigger map update
+    if (mapRef.current) {
+      mapRef.current.updateMap(data)
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -25,12 +36,16 @@ export function App() {
       </header>
 
       <main className="app-content">
-        <MapWithDropzone />
+        <MapWithDropzone ref={mapRef} onDataLoaded={setCurrentData} />
       </main>
 
       {isProcessorOpen && (
-        <Suspense fallback={<div className="modal-backdrop"><p className="panel loading-panel">Loading GDAL...</p></div>}>
-          <GeoProcessor onClose={() => setIsProcessorOpen(false)} />
+        <Suspense fallback={<div className="modal-backdrop"><p className="panel loading-panel">Loading processor...</p></div>}>
+          <GeoProcessor 
+            onClose={() => setIsProcessorOpen(false)} 
+            currentData={currentData}
+            onDataProcessed={handleDataProcessed}
+          />
         </Suspense>
       )}
     </div>

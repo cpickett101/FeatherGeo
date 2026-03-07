@@ -642,3 +642,44 @@ a {
   color: #f8fbff;
   box-shadow: 0 12px 30px rgba(20, 33, 61, 0.2);
 }
+
+.processor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.processor-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-weight: 600;
+  color: #20304b;
+  font-size: 0.92rem;
+}
+
+.processor-select,
+.processor-input {
+  padding: 10px 12px;
+  border: 2px solid rgba(14, 116, 144, 0.2);
+  border-radius: 12px;
+  background: rgba(14, 116, 144, 0.04);
+  font-size: 1rem;
+  color: #14213d;
+  transition: all 140ms ease;
+}
+
+.processor-select:focus,
+.processor-input:focus {
+  outline: none;
+  border-color: #0f766e;
+  background: rgba(14, 116, 144, 0.08);
+}
+
+.processor-select {
+  cursor: pointer;
+}
+
+.processor-input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}

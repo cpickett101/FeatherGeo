@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { Map as OLMap, View } from 'ol'
 import { GeoJSON } from 'ol/format'
 import VectorLayer from 'ol/layer/Vector'
@@ -12,14 +12,18 @@ import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 
 interface MapWithDropzoneProps {
-  onFilesProcessed?: (features: GeoJSON.Feature[]) => void
+  onDataLoaded?: (data: FeatureCollection) => void
+}
+
+export interface MapWithDropzoneRef {
+  updateMap: (data: FeatureCollection) => void
 }
 
 type ImportStatusTone = 'neutral' | 'success' | 'error'
 
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 
-const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -225,7 +229,7 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
 
       if (result && result.features && result.features.length > 0) {
         displayGeoJSON(result)
-        onFilesProcessed?.(result.features)
+        onDataLoaded?.(result)
         setFeatureCount(result.features.length)
         setGeometrySummary(summarizeGeometry(result.features))
         setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
@@ -245,7 +249,7 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
     } finally {
       setIsProcessing(false)
     }
-  }, [displayGeoJSON, onFilesProcessed])
+  }, [displayGeoJSON, onDataLoaded])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
@@ -278,6 +282,17 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
   }, [])
 
   const [showDetails, setShowDetails] = useState(false)
+
+  // Expose updateMap method to parent via ref
+  useImperativeHandle(ref, () => ({
+    updateMap: (data: FeatureCollection) => {
+      displayGeoJSON(data)
+      setFeatureCount(data.features.length)
+      setGeometrySummary(summarizeGeometry(data.features))
+      setStatus(`Processed: ${data.features.length} feature${data.features.length === 1 ? '' : 's'} on the map.`)
+      setStatusTone('success')
+    }
+  }), [displayGeoJSON])
 
   return (
     <section className="map-workspace">
@@ -404,6 +419,8 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
       </div>
     </section>
   )
-}
+})
+
+MapWithDropzone.displayName = 'MapWithDropzone'
 
 export default MapWithDropzone
