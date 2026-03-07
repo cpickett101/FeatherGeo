@@ -70,6 +70,41 @@ export class GDALService {
     return null
   }
 
+  async exportToShapefile(geojson: GeoJSON.FeatureCollection): Promise<Map<string, Uint8Array>> {
+    const geojsonStr = JSON.stringify(geojson)
+    const blob = new Blob([geojsonStr], { type: 'application/json' })
+    const file = new File([blob], 'export.geojson', { type: 'application/json' })
+
+    const { datasets, errors } = await this.gdal.open(file)
+    if (!datasets.length) {
+      throw new Error(`Failed to open GeoJSON for conversion: ${errors[0]?.message ?? 'unknown'}`)
+    }
+
+    const result = await this.gdal.ogr2ogr(datasets[0], ['-f', 'ESRI Shapefile'])
+    await this.gdal.close(datasets[0])
+
+    const files = new Map<string, Uint8Array>()
+
+    // gdal3.js returns `all` array with paths for multi-file formats
+    const paths: string[] = result?.all ?? (result?.real ? [result.real] : [])
+
+    for (const filePath of paths) {
+      try {
+        const bytes = await this.gdal.getFileBytes(filePath)
+        const name = filePath.split('/').pop() ?? filePath
+        files.set(name, new Uint8Array(bytes))
+      } catch {
+        // skip files that can't be read
+      }
+    }
+
+    if (files.size === 0) {
+      throw new Error('No output generated from shapefile conversion')
+    }
+
+    return files
+  }
+
   async processShapefile(files: File[]): Promise<GeoJSON.FeatureCollection> {
     // gdal3.js accepts an array of related shapefile files (.shp, .dbf, .shx, etc.)
     console.log('Processing shapefile with files:', files.map(f => f.name))

@@ -298,8 +298,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     <section className="map-workspace">
       <aside className="panel import-panel">
         <div className="panel-section">
-          <p className="panel-kicker">Shapefile Import</p>
-          <h2>Load vector data</h2>
+          <p className="panel-kicker">Import</p>
+          <h2>Shapefile</h2>
         </div>
 
         <div
@@ -311,7 +311,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           onClick={() => fileInputRef.current?.click()}
         >
           <div className="drop-zone-icon">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
@@ -328,7 +328,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           />
         </div>
 
-        <div className="panel-section stats-grid">
+        <div className="stats-grid">
           <div className="stat-card">
             <span className="stat-label">Features</span>
             <strong>{featureCount}</strong>
@@ -341,7 +341,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
         {loadedFiles.length > 0 && (
           <div className="panel-section">
-            <h3>Loaded files</h3>
+            <h3>Source</h3>
             <ul className="file-chip-list">
               {loadedFiles
                 .filter(fileName => fileName.toLowerCase().endsWith('.shp'))
@@ -361,14 +361,14 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           </div>
         )}
 
-        <div className="panel-section action-group">
+        <div className="action-group">
           <button
             type="button"
             className="secondary-button"
             onClick={clearLayer}
             disabled={featureCount === 0}
           >
-            Clear map
+            Clear
           </button>
           <button
             type="button"
@@ -380,13 +380,13 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         </div>
 
         {showDetails && (
-          <div className="panel-section details-section">
+          <div className="details-section">
             <h3>File requirements</h3>
             <ul className="guidance-list">
-              <li>Required: `.shp` (geometry) and `.shx` (index)</li>
-              <li>Recommended: `.dbf` (attributes)</li>
-              <li>Optional: `.prj`, `.cpg`, `.qpj`, `.shp.xml`</li>
-              <li>Select all files together, or upload a `.zip` file</li>
+              <li>Required: .shp (geometry) + .shx (index)</li>
+              <li>Recommended: .dbf (attributes)</li>
+              <li>Optional: .prj, .cpg, .qpj</li>
+              <li>Or upload a single .zip file</li>
             </ul>
           </div>
         )}
