@@ -70,7 +70,7 @@ export class GDALService {
     return null
   }
 
-  async exportToShapefile(geojson: GeoJSON.FeatureCollection): Promise<Map<string, Uint8Array>> {
+  async exportToShapefile(geojson: GeoJSON.FeatureCollection, baseName = 'export'): Promise<Map<string, Uint8Array>> {
     const geojsonStr = JSON.stringify(geojson)
     const blob = new Blob([geojsonStr], { type: 'application/json' })
     const file = new File([blob], 'export.geojson', { type: 'application/json' })
@@ -80,21 +80,28 @@ export class GDALService {
       throw new Error(`Failed to open GeoJSON for conversion: ${errors[0]?.message ?? 'unknown'}`)
     }
 
-    const result = await this.gdal.ogr2ogr(datasets[0], ['-f', 'ESRI Shapefile'])
+    const result = await this.gdal.ogr2ogr(datasets[0], ['-f', 'ESRI Shapefile'], `${baseName}.shp`)
     await this.gdal.close(datasets[0])
+
+    console.log('ogr2ogr shapefile result:', JSON.stringify(result))
 
     const files = new Map<string, Uint8Array>()
 
-    // gdal3.js returns `all` array with paths for multi-file formats
-    const paths: string[] = result?.all ?? (result?.real ? [result.real] : [])
+    const shpPath: string | undefined = result?.real
+    if (shpPath) {
+      const pathBase = shpPath.replace(/\.shp$/i, '')
+      const extensions = ['.shp', '.shx', '.dbf', '.prj', '.cpg']
 
-    for (const filePath of paths) {
-      try {
-        const bytes = await this.gdal.getFileBytes(filePath)
-        const name = filePath.split('/').pop() ?? filePath
-        files.set(name, new Uint8Array(bytes))
-      } catch {
-        // skip files that can't be read
+      for (const ext of extensions) {
+        const filePath = pathBase + ext
+        try {
+          const bytes = await this.gdal.getFileBytes(filePath)
+          if (bytes && bytes.byteLength > 0) {
+            files.set(baseName + ext, new Uint8Array(bytes))
+          }
+        } catch {
+          // optional sidecar files may not exist
+        }
       }
     }
 

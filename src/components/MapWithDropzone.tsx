@@ -12,7 +12,7 @@ import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 
 interface MapWithDropzoneProps {
-  onDataLoaded?: (data: FeatureCollection) => void
+  onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
 }
 
 export interface MapWithDropzoneRef {
@@ -229,7 +229,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
       if (result && result.features && result.features.length > 0) {
         displayGeoJSON(result)
-        onDataLoaded?.(result)
+        onDataLoaded?.(result, shapefileFiles.find(f => f.name.toLowerCase().endsWith('.shp'))?.name)
         setFeatureCount(result.features.length)
         setGeometrySummary(summarizeGeometry(result.features))
         setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
@@ -385,7 +385,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             <ul className="guidance-list">
               <li>Required: .shp (geometry) + .shx (index)</li>
               <li>Recommended: .dbf (attributes)</li>
-              <li>Optional: .prj, .cpg, .qpj</li>
+              <li>Optional: .prj (projection), .cpg (encoding)</li>
               <li>Or upload a single .zip file</li>
             </ul>
           </div>

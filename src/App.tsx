@@ -13,15 +13,26 @@ type ActiveTool = 'buffer' | 'simplify' | null
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
   const [currentData, setCurrentData] = useState<FeatureCollection | null>(null)
+  const [sourceFileName, setSourceFileName] = useState<string>('feathergeo')
   const [activeTool, setActiveTool] = useState<ActiveTool>(null)
   const [bufferDistance, setBufferDistance] = useState(1)
   const [simplifyTolerance, setSimplifyTolerance] = useState(0.01)
   const [toolPanelPosition, setToolPanelPosition] = useState({ left: 0, top: 0 })
   const mapRef = useRef<{ updateMap: (data: FeatureCollection) => void }>(null)
 
+  const handleSourceDataLoaded = useCallback((data: FeatureCollection, fileName?: string) => {
+    setCurrentData(data)
+    if (fileName) {
+      const base = fileName.replace(/\.[^.]+$/, '')
+      setSourceFileName(base)
+    }
+    if (mapRef.current) {
+      mapRef.current.updateMap(data)
+    }
+  }, [])
+
   const handleDataProcessed = (data: FeatureCollection) => {
     setCurrentData(data)
-    // Trigger map update
     if (mapRef.current) {
       mapRef.current.updateMap(data)
     }
@@ -129,6 +140,11 @@ export function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
   }, [])
 
+  const makeExportName = useCallback((ext: string) => {
+    const rand = Math.floor(Math.random() * 9000 + 1000)
+    return `${sourceFileName}_exported_${rand}.${ext}`
+  }, [sourceFileName])
+
   const downloadAsGeoJSON = useCallback(() => {
     if (!currentData || !currentData.features.length) return
     setExportBusy('geojson')
@@ -138,7 +154,7 @@ export function App() {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `feathergeo-${Date.now()}.geojson`
+      link.download = makeExportName('geojson')
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -147,7 +163,7 @@ export function App() {
       setExportBusy(null)
       setShowExportTray(false)
     }
-  }, [currentData])
+  }, [currentData, makeExportName])
 
   const downloadAsShapefile = useCallback(async () => {
     if (!currentData || !currentData.features.length) return
@@ -158,18 +174,21 @@ export function App() {
         import('jszip').then(m => m.default)
       ])
       const gdal = await GDALService.getInstance()
-      const shpFiles = await gdal.exportToShapefile(currentData)
+      const rand = Math.floor(Math.random() * 9000 + 1000)
+      const exportBase = `${sourceFileName}_exported_${rand}`
+      const shpFiles = await gdal.exportToShapefile(currentData, exportBase)
 
       const zip = new JSZip()
+      const folder = zip.folder(exportBase)!
       for (const [name, bytes] of shpFiles) {
-        zip.file(name, bytes)
+        folder.file(name, bytes)
       }
 
       const zipBlob = await zip.generateAsync({ type: 'blob' })
       const url = URL.createObjectURL(zipBlob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `feathergeo-${Date.now()}.zip`
+      link.download = `${exportBase}.zip`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
@@ -180,7 +199,7 @@ export function App() {
       setExportBusy(null)
       setShowExportTray(false)
     }
-  }, [currentData])
+  }, [currentData, makeExportName])
 
   const hasData = currentData && currentData.features.length > 0
 
@@ -371,7 +390,7 @@ export function App() {
       )}
 
       <main className="app-content">
-        <MapWithDropzone ref={mapRef} onDataLoaded={setCurrentData} />
+        <MapWithDropzone ref={mapRef} onDataLoaded={handleSourceDataLoaded} />
       </main>
 
       {isProcessorOpen && (
