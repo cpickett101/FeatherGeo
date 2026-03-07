@@ -61,6 +61,8 @@ a { color: inherit; }
   flex-shrink: 0;
   background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
+  position: relative;
+  z-index: 100;
 }
 
 .app-header h1 {
@@ -102,21 +104,114 @@ a { color: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--c-text-muted);
   text-decoration: none;
   background: var(--c-surface-dim);
   border: 1px solid var(--c-border);
-  transition: color var(--transition), background var(--transition), border-color var(--transition);
+  transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+  letter-spacing: 0.01em;
+}
+
+.app-github-link svg {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .app-github-link:hover {
   color: var(--c-text);
-  background: var(--c-border);
+  background: var(--c-surface-dim);
   border-color: var(--c-border-strong);
+  box-shadow: 0 2px 8px rgba(20, 33, 61, 0.1);
+  transform: translateY(-1px);
+}
+
+.app-github-link:hover svg {
+  transform: rotate(-15deg) scale(1.2);
+}
+
+.app-github-link:active {
+  transform: translateY(0);
+  box-shadow: none;
+}
+
+@keyframes pulse-lock {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.app-local-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px 5px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--c-text-muted);
+  text-decoration: none;
+  background: var(--c-surface-dim);
+  border: 1px solid var(--c-border);
+  cursor: default;
+  user-select: none;
+  letter-spacing: 0.01em;
+  transition: color 0.2s, background 0.2s, border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.app-local-badge svg {
+  animation: pulse-lock 3s ease-in-out infinite;
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.app-local-badge:hover {
+  color: var(--c-text);
+  background: var(--c-surface-dim);
+  border-color: var(--c-border-strong);
+  box-shadow: 0 2px 8px rgba(20, 33, 61, 0.1);
+  transform: translateY(-1px);
+}
+
+.app-local-badge:hover svg {
+  transform: rotate(-15deg) scale(1.2);
+  animation-play-state: paused;
+}
+
+.app-local-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 100;
+  letter-spacing: 0.01em;
+}
+
+.app-local-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--c-text);
+}
+
+.app-local-badge {
+  position: relative;
+}
+
+.app-local-badge:hover .app-local-tooltip {
+  display: block;
 }
 
 .app-eyebrow {
@@ -153,9 +248,54 @@ a { color: inherit; }
   align-items: center;
   justify-content: center;
   gap: 5px;
+  position: relative;
 }
 
 .tool-button i { font-size: 1.05em; }
+
+.tool-button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateX(-50%) translateY(-4px);
+}
+
+.tool-button[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--c-text);
+  pointer-events: none;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.tool-button[data-tooltip]:hover:not(:disabled)::after,
+.tool-button[data-tooltip]:hover:not(:disabled)::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.tool-button[data-tooltip]:hover:not(:disabled)::before {
+  transform: translateX(-50%);
+}
 
 .tool-button:hover:not(:disabled) {
   background: var(--c-accent-soft);
@@ -187,6 +327,7 @@ a { color: inherit; }
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  position: relative;
 }
 
 .download-button i { font-size: 1.05em; }
@@ -214,6 +355,7 @@ a { color: inherit; }
   align-items: center;
   justify-content: center;
   font-size: 1.05rem;
+  position: relative;
 }
 
 .processor-button i { font-size: 1em; }
@@ -221,6 +363,54 @@ a { color: inherit; }
 .processor-button:hover {
   background: var(--c-surface-dim);
   color: var(--c-text);
+}
+
+.download-button[data-tooltip]::after,
+.processor-button[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.download-button[data-tooltip]::before,
+.processor-button[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--c-text);
+  pointer-events: none;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.download-button[data-tooltip]:hover:not(:disabled)::after,
+.download-button[data-tooltip]:hover:not(:disabled)::before,
+.processor-button[data-tooltip]:hover::after,
+.processor-button[data-tooltip]:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.download-button[data-tooltip]:hover:not(:disabled)::before,
+.processor-button[data-tooltip]:hover::before {
+  transform: translateX(-50%);
 }
 
 /* ── Tool Panel (popover) ──────────────────────────── */

@@ -83,8 +83,6 @@ export class GDALService {
     const result = await this.gdal.ogr2ogr(datasets[0], ['-f', 'ESRI Shapefile'], `${baseName}.shp`)
     await this.gdal.close(datasets[0])
 
-    console.log('ogr2ogr shapefile result:', JSON.stringify(result))
-
     const files = new Map<string, Uint8Array>()
 
     const shpPath: string | undefined = result?.real
@@ -113,13 +111,11 @@ export class GDALService {
   }
 
   async processShapefile(files: File[]): Promise<GeoJSON.FeatureCollection> {
-    // gdal3.js accepts an array of related shapefile files (.shp, .dbf, .shx, etc.)
-    console.log('Processing shapefile with files:', files.map(f => f.name))
-    
     const { datasets, errors } = await this.gdal.open(files)
 
-    if (errors.length) {
-      console.error('GDAL errors:', errors)
+    const realErrors = errors.filter((e: any) => e.no !== 0)
+    if (realErrors.length) {
+      console.error('GDAL errors:', realErrors)
     }
     
     if (!datasets.length) {
@@ -127,26 +123,15 @@ export class GDALService {
     }
 
     const dataset: GDALDataset = datasets[0]
-    console.log('Dataset opened:', dataset)
-
-    // Convert each layer to GeoJSON using ogr2ogr via gdal3.js
     const result = await this.gdal.ogr2ogr(dataset, ['-f', 'GeoJSON', '-t_srs', 'EPSG:4326'])
-    console.log('ogr2ogr result:', result)
-    
     await this.gdal.close(dataset)
 
-    // The result contains file paths, we need to read the actual GeoJSON file
     if (result?.real) {
       const geojsonBytes = await this.gdal.getFileBytes(result.real)
       const text = new TextDecoder().decode(geojsonBytes)
-      console.log('GeoJSON text:', text.substring(0, 500))
-      
       try {
-        const geojson = JSON.parse(text) as GeoJSON.FeatureCollection
-        console.log('Parsed GeoJSON:', geojson)
-        return geojson
-      } catch (error) {
-        console.error('Failed to parse GeoJSON:', error)
+        return JSON.parse(text) as GeoJSON.FeatureCollection
+      } catch {
         throw new Error('Failed to parse GeoJSON output from shapefile')
       }
     }
