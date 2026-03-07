@@ -1,0 +1,25 @@
+import LZString from 'lz-string'
+
+export const storage = {
+  setGeoData(key: string, data: any) {
+    const compressed = LZString.compress(JSON.stringify(data))
+    localStorage.setItem(`geo-${key}`, compressed)
+  },
+
+  getGeoData(key: string): any | null {
+    const compressed = localStorage.getItem(`geo-${key}`)
+    return compressed ? JSON.parse(LZString.decompress(compressed) ?? 'null') : null
+  },
+
+  // Cache management
+  clearOldCaches(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
+    Object.keys(localStorage).forEach(key => {
+      if (key.startsWith('gdal-meta-')) {
+        const meta = JSON.parse(localStorage.getItem(key) || '{}')
+        if (Date.now() - meta.timestamp > maxAgeMs) {
+          localStorage.removeItem(key)
+        }
+      }
+    })
+  }
+}
