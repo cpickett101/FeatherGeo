@@ -9,6 +9,7 @@ import { Fill, Stroke, Style } from 'ol/style'
 import { fromLonLat } from 'ol/proj'
 import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
+import JSZip from 'jszip'
 
 interface MapWithDropzoneProps {
   onFilesProcessed?: (features: GeoJSON.Feature[]) => void
@@ -140,7 +141,50 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
   }, [])
 
   const processFiles = useCallback(async (files: File[]) => {
-    const shapefileFiles = files.filter((file) => {
+    // Check if there's a zip file
+    const zipFile = files.find(file => file.name.toLowerCase().endsWith('.zip'))
+    
+    let filesToProcess: File[] = files
+    
+    if (zipFile) {
+      setIsProcessing(true)
+      setStatusTone('neutral')
+      setStatus('Extracting zip file...')
+      
+      try {
+        const zip = await JSZip.loadAsync(zipFile)
+        const extractedFiles: File[] = []
+        
+        for (const [filename, zipEntry] of Object.entries(zip.files)) {
+          if (!zipEntry.dir) {
+            const lowerName = filename.toLowerCase()
+            if (SHAPEFILE_EXTENSIONS.some(ext => lowerName.endsWith(ext))) {
+              const blob = await zipEntry.async('blob')
+              const file = new File([blob], filename.split('/').pop() || filename, { type: 'application/octet-stream' })
+              extractedFiles.push(file)
+            }
+          }
+        }
+        
+        if (extractedFiles.length === 0) {
+          setStatus('No shapefile components found in the zip file.')
+          setStatusTone('error')
+          setIsProcessing(false)
+          return
+        }
+        
+        filesToProcess = extractedFiles
+        setStatus(`Extracted ${extractedFiles.length} file${extractedFiles.length === 1 ? '' : 's'} from zip...`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        setStatus(`Failed to extract zip file: ${message}`)
+        setStatusTone('error')
+        setIsProcessing(false)
+        return
+      }
+    }
+    
+    const shapefileFiles = filesToProcess.filter((file) => {
       const lowerName = file.name.toLowerCase()
       return SHAPEFILE_EXTENSIONS.some((extension) => lowerName.endsWith(extension))
     })
@@ -233,15 +277,14 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
     setStatusTone('neutral')
   }, [])
 
+  const [showDetails, setShowDetails] = useState(false)
+
   return (
     <section className="map-workspace">
       <aside className="panel import-panel">
         <div className="panel-section">
           <p className="panel-kicker">Shapefile Import</p>
           <h2>Load vector data</h2>
-          <p className="panel-copy">
-            Drag shapefile components to the drop zone or click to browse. Feather Geo converts them to GeoJSON and zooms to the result.
-          </p>
         </div>
 
         <div
@@ -250,6 +293,7 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
         >
           <div className="drop-zone-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -258,40 +302,15 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
           </div>
-          <p className="drop-zone-title">Drop shapefile components here</p>
-          <p className="drop-zone-hint">or click to browse files</p>
+          <p className="drop-zone-title">Drop files or click to browse</p>
           <input
             ref={fileInputRef}
             className="sr-only"
             type="file"
-            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj,.shp.xml"
+            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj,.shp.xml,.zip"
             multiple
             onChange={handleFileSelection}
           />
-          <button
-            type="button"
-            className="drop-zone-button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessing}
-          >
-            {isProcessing ? 'Importing...' : 'Browse files'}
-          </button>
-        </div>
-
-        <div className="panel-section action-group">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={clearLayer}
-            disabled={isProcessing && featureCount === 0}
-          >
-            Clear map
-          </button>
-        </div>
-
-        <div className={`status-card is-${statusTone}`}>
-          <span className="status-label">{isProcessing ? 'Working' : statusTone === 'success' ? 'Ready' : statusTone === 'error' ? 'Issue' : 'Status'}</span>
-          <p>{status}</p>
         </div>
 
         <div className="panel-section stats-grid">
@@ -305,31 +324,57 @@ const MapWithDropzone: React.FC<MapWithDropzoneProps> = ({ onFilesProcessed }) =
           </div>
         </div>
 
-        <div className="panel-section">
-          <h3>Included files</h3>
-          {loadedFiles.length > 0 ? (
+        {loadedFiles.length > 0 && (
+          <div className="panel-section">
+            <h3>Loaded files</h3>
             <ul className="file-chip-list">
-              {loadedFiles.map((fileName) => (
-                <li key={fileName} className="file-chip">
-                  {fileName}
-                </li>
-              ))}
+              {loadedFiles
+                .filter(fileName => fileName.toLowerCase().endsWith('.shp'))
+                .map((fileName) => (
+                  <li key={fileName} className="file-chip">
+                    {fileName}
+                  </li>
+                ))}
             </ul>
-          ) : (
-            <p className="muted">No files selected yet.</p>
-          )}
+          </div>
+        )}
+
+        {statusTone !== 'neutral' && (
+          <div className={`status-card is-${statusTone}`}>
+            <span className="status-label">{isProcessing ? 'Working' : statusTone === 'success' ? 'Ready' : 'Issue'}</span>
+            <p>{status}</p>
+          </div>
+        )}
+
+        <div className="panel-section action-group">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={clearLayer}
+            disabled={featureCount === 0}
+          >
+            Clear map
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setShowDetails(!showDetails)}
+          >
+            {showDetails ? 'Hide' : 'Show'} help
+          </button>
         </div>
 
-        <div className="panel-section">
-          <h3>What to include</h3>
-          <ul className="guidance-list">
-            <li>Required: the `.shp` file (geometry).</li>
-            <li>Required: the `.shx` file (index).</li>
-            <li>Recommended: matching `.dbf` file (attributes).</li>
-            <li>Optional: `.prj`, `.cpg`, `.qpj`, and `.shp.xml` for projection and metadata.</li>
-            <li>Tip: Select all files with the same base name together (e.g., roads.shp, roads.shx, roads.dbf).</li>
-          </ul>
-        </div>
+        {showDetails && (
+          <div className="panel-section details-section">
+            <h3>File requirements</h3>
+            <ul className="guidance-list">
+              <li>Required: `.shp` (geometry) and `.shx` (index)</li>
+              <li>Recommended: `.dbf` (attributes)</li>
+              <li>Optional: `.prj`, `.cpg`, `.qpj`, `.shp.xml`</li>
+              <li>Select all files together, or upload a `.zip` file</li>
+            </ul>
+          </div>
+        )}
       </aside>
 
       <div className="map-stage">
