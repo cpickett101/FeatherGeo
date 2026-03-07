@@ -1,4 +1,5 @@
-import initGdalJs from 'gdal3.js'
+import * as GdalModule from 'gdal3.js'
+const initGdalJs = (GdalModule as any).default ?? GdalModule
 import type { GDALDataset } from '../types/gdalTypes'
 
 export type { GDALDataset }
@@ -37,6 +38,33 @@ export class GDALService {
       console.warn('WASM cache read failed:', e)
     }
     return null
+  }
+
+  async processShapefile(files: File[]): Promise<GeoJSON.FeatureCollection> {
+    // gdal3.js accepts an array of related shapefile files (.shp, .dbf, .shx, etc.)
+    const { datasets, errors } = await this.gdal.open(files)
+
+    if (errors.length || !datasets.length) {
+      throw new Error(`Failed to open shapefile: ${errors[0]?.message ?? 'unknown error'}`)
+    }
+
+    const dataset: GDALDataset = datasets[0]
+    const features: GeoJSON.Feature[] = []
+
+    // Convert each layer to GeoJSON using ogr2ogr via gdal3.js
+    const result = await this.gdal.ogr2ogr(dataset, ['-f', 'GeoJSON', '-t_srs', 'EPSG:4326'])
+    await this.gdal.close(dataset)
+
+    if (result?.output) {
+      const text = new TextDecoder().decode(result.output)
+      try {
+        return JSON.parse(text) as GeoJSON.FeatureCollection
+      } catch {
+        throw new Error('Failed to parse GeoJSON output from shapefile')
+      }
+    }
+
+    return { type: 'FeatureCollection', features }
   }
 
   async processGeoTIFF(file: File): Promise<GeoJSON.FeatureCollection> {

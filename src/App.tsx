@@ -1,28 +1,15 @@
-import { lazy, Suspense, useState, useEffect, useRef } from 'react'
-import Map from 'ol/Map'
-import View from 'ol/View'
-import TileLayer from 'ol/layer/Tile'
-import OSM from 'ol/source/OSM'
-import { fromLonLat } from 'ol/proj'
+import { lazy, Suspense, useState, useEffect } from 'react'
+import MapWithDropzone from './components/MapWithDropzone'
 
 // Lazy load GDAL only when needed
-const GeoProcessor = lazy(() => import('./components/GeoProcessor'))
+const GeoProcessor = lazy(() =>
+  import('./components/GeoProcessor').then(m => ({ default: m.GeoProcessor }))
+)
 
 export function App() {
   const [route, setRoute] = useState(window.location.hash)
-  const mapRef = useRef<Map | null>(null)
 
   window.onhashchange = () => setRoute(window.location.hash)
-
-  useEffect(() => {
-    if (route !== '#/process' && !mapRef.current) {
-      mapRef.current = new Map({
-        target: 'map',
-        layers: [new TileLayer({ source: new OSM() })],
-        view: new View({ center: fromLonLat([0, 20]), zoom: 2 }),
-      })
-    }
-  }, [route])
 
   return (
     <div>
@@ -35,7 +22,9 @@ export function App() {
           <GeoProcessor />
         </Suspense>
       ) : (
-        <div id="map" style={{ width: '100%', height: '90vh' }} />
+        <div style={{ width: '100%', height: '90vh' }}>
+          <MapWithDropzone />
+        </div>
       )}
     </div>
   )
