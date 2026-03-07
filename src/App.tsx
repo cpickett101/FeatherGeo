@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useRef, useCallback } from 'react'
 import MapWithDropzone from './components/MapWithDropzone'
-import type { FeatureCollection } from 'geojson'
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
 
 // Lazy load GDAL only when needed
@@ -44,7 +44,7 @@ export function App() {
             } catch (e) {
               return null
             }
-          }).filter(f => f !== null)
+          }).filter((f): f is Feature<Polygon | MultiPolygon> => f !== null)
           result = turf.featureCollection(buffered)
           break
         }
@@ -69,7 +69,7 @@ export function App() {
             } catch (e) {
               return null
             }
-          }).filter(f => f !== null)
+          }).filter((f): f is NonNullable<typeof f> => f !== null)
           result = turf.featureCollection(centroids)
           break
         }
@@ -88,7 +88,7 @@ export function App() {
             } catch (e) {
               return null
             }
-          }).filter(f => f !== null)
+          }).filter((f): f is NonNullable<typeof f> => f !== null)
           result = turf.featureCollection(boxes)
           break
         }
