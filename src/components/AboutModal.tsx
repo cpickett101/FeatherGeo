@@ -1,0 +1,68 @@
+import React from 'react'
+
+interface AboutModalProps {
+  onClose: () => void
+}
+
+export function AboutModal({ onClose }: AboutModalProps) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-box" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="about-title">
+        <button className="modal-close" onClick={onClose} aria-label="Close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+
+        <div className="about-logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <defs>
+              <linearGradient id="about-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#818cf8" />
+                <stop offset="100%" stopColor="#38bdf8" />
+              </linearGradient>
+            </defs>
+            <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5l6.74-6.76z" stroke="url(#about-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <line x1="16" y1="8" x2="2" y2="22" stroke="url(#about-grad)" strokeWidth="2" strokeLinecap="round"/>
+            <line x1="17.5" y1="15" x2="9" y2="15" stroke="url(#about-grad)" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <h2 id="about-title">Feather<span className="app-logo-accent">Geo</span></h2>
+        </div>
+
+        <p className="about-tagline">A lightweight, browser-based GIS tool — no server required.</p>
+
+        <div className="about-body">
+          <h3>About the project</h3>
+          <p>
+            FeatherGeo was built to make basic GIS work accessible without the overhead of desktop software or cloud uploads.
+            Drop in a shapefile or GeoJSON, inspect your features, run spatial operations like buffer, simplify, or convex hull,
+            and export the result — all without your data ever leaving the browser.
+          </p>
+
+          <h3>About me</h3>
+          <p>
+            I'm <a href="https://www.linkedin.com/in/christopher-pickett-gisp-a4908979/" target="_blank" rel="noopener noreferrer">Christopher Pickett</a>, a
+            GIS professional (GISP) with a background in spatial analysis, data engineering, and web mapping.
+            I built FeatherGeo because I kept running into situations where I needed a quick way to preview or
+            process a shapefile without spinning up QGIS or uploading sensitive data to an external service.
+          </p>
+          <p>
+            The stack is React + OpenLayers + GDAL (compiled to WebAssembly via gdal3.js), which means real
+            shapefile support — not just GeoJSON — runs entirely in your browser.
+          </p>
+        </div>
+
+        <div className="about-footer">
+          <a className="about-link" href="https://github.com/cpickett101/FeatherGeo" target="_blank" rel="noopener noreferrer">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            View on GitHub
+          </a>
+          <span className="about-badge">Open Source · MIT</span>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useRef, useCallback } from 'react'
 import MapWithDropzone from './components/MapWithDropzone'
+import { FeaturePopup } from './components/FeaturePopup'
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
 
@@ -142,6 +143,15 @@ export function App() {
 
   const [showExportTray, setShowExportTray] = useState(false)
   const [exportBusy, setExportBusy] = useState<string | null>(null)
+  const [featurePopup, setFeaturePopup] = useState<{ properties: Record<string, unknown>; pixel: [number, number] } | null>(null)
+
+  const handleFeatureClick = useCallback((properties: Record<string, unknown>, pixel: [number, number]) => {
+    if (Object.keys(properties).length === 0) {
+      setFeaturePopup(null)
+    } else {
+      setFeaturePopup({ properties, pixel })
+    }
+  }, [])
 
   const estimateSize = useCallback((data: FeatureCollection | null): string => {
     if (!data) return '0 B'
@@ -221,8 +231,8 @@ export function App() {
           <svg className="app-logo-icon" width="22" height="22" viewBox="0 0 24 24" fill="none">
             <defs>
               <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#0d9488" />
-                <stop offset="100%" stopColor="#0284c7" />
+                <stop offset="0%" stopColor="#818cf8" />
+                <stop offset="100%" stopColor="#38bdf8" />
               </linearGradient>
             </defs>
             <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5l6.74-6.76z" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -307,20 +317,19 @@ export function App() {
           )}
           <div className="nav-divider"></div>
           <button 
-            className={`download-button${showExportTray ? ' is-active' : ''}`}
-            onClick={() => setShowExportTray(!showExportTray)}
-            disabled={!hasData}
-            data-tooltip="Export as GeoJSON or Shapefile"
-          >
-            <i className="fg fg-layer-download" />
-            Export
-          </button>
-          <button 
             className="processor-button"
             onClick={() => setIsProcessorOpen(true)}
             data-tooltip="Advanced geo operations"
           >
             <i className="fg fg-map-options" />
+          </button>
+          <button 
+            className={`download-button${showExportTray ? ' is-active' : ''}`}
+            onClick={() => setShowExportTray(!showExportTray)}
+            disabled={!hasData}
+          >
+            <i className="fg fg-layer-download" />
+            Export
           </button>
         </div>
       </header>
@@ -423,8 +432,16 @@ export function App() {
       )}
 
       <main className="app-content">
-        <MapWithDropzone ref={mapRef} onDataLoaded={handleSourceDataLoaded} />
+        <MapWithDropzone ref={mapRef} onDataLoaded={handleSourceDataLoaded} onFeatureClick={handleFeatureClick} />
       </main>
+
+      {featurePopup && (
+        <FeaturePopup
+          properties={featurePopup.properties}
+          pixel={featurePopup.pixel}
+          onClose={() => setFeaturePopup(null)}
+        />
+      )}
 
       {isProcessorOpen && (
         <Suspense fallback={null}>
