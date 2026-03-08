@@ -294,7 +294,7 @@ export function App() {
           </svg>
           <span className="app-logo-text">Feather<span className="app-logo-accent">Geo</span></span>
         </h1>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div className="app-header-links">
           <span className="app-local-badge">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
