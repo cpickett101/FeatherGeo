@@ -9,7 +9,6 @@ import OSM from 'ol/source/OSM'
 import XYZ from 'ol/source/XYZ'
 import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style'
 import { DragBox, DragPan } from 'ol/interaction'
-import { platformModifierKeyOnly } from 'ol/events/condition'
 import type { FeatureLike } from 'ol/Feature'
 import OLFeature from 'ol/Feature'
 import type { Geometry } from 'ol/geom'
@@ -63,7 +62,6 @@ function createBasemapLayer(id: BasemapId): TileLayer<OSM | XYZ> {
 interface MapWithDropzoneProps {
   onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
   onFeatureClick?: (properties: Record<string, unknown>, pixel: [number, number]) => void
-  onDeleteSelectedFeature?: () => void
   dataset?: FeatureCollection | null
   measures?: { areaSqKm: number; lengthKm: number }
 }
@@ -81,7 +79,7 @@ type ImportStatusTone = 'neutral' | 'success' | 'error'
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, onDeleteSelectedFeature, dataset, measures }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -100,7 +98,6 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [featureCount, setFeatureCount] = useState(0)
   const [geometrySummary, setGeometrySummary] = useState<string>('No data loaded')
   const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
-  const [currentGeoJSON, setCurrentGeoJSON] = useState<FeatureCollection | null>(null)
 
   const onFeatureClickRef = useRef(onFeatureClick)
   useEffect(() => { onFeatureClickRef.current = onFeatureClick }, [onFeatureClick])
@@ -187,7 +184,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   // Render restored session data once map is ready
   useEffect(() => {
     if (dataset && dataset.features.length > 0 && mapInstance.current) {
-      displayGeoJSON(dataset)
+      displayGeoJSON(dataset, { animate: false })
       setFeatureCount(dataset.features.length)
       setGeometrySummary(summarizeGeometry(dataset.features))
       setStatus(`Restored ${dataset.features.length} feature${dataset.features.length === 1 ? '' : 's'} from last session.`)
@@ -313,11 +310,10 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       .join(' | ')
   }
 
-  const displayGeoJSON = useCallback((geojson: FeatureCollection) => {
+  const displayGeoJSON = useCallback((geojson: FeatureCollection, options?: { animate?: boolean }) => {
+    const animate = options?.animate !== false
     const map = mapInstance.current
     if (!map) return
-
-    setCurrentGeoJSON(geojson)
 
     if (vectorLayerRef.current) {
       map.removeLayer(vectorLayerRef.current)
@@ -364,7 +360,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       map.getView().fit(extent, {
         padding: [56, 56, 56, 56],
         maxZoom: 15,
-        duration: 450,
+        duration: animate ? 450 : 0,
       })
     }
   }, [])
@@ -533,7 +529,6 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       vectorLayerRef.current = null
     }
     selectedFeatureRef.current = null
-    setCurrentGeoJSON(null)
 
     setLoadedFiles([])
     setFeatureCount(0)
@@ -594,7 +589,6 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           })
         )
       }
-      setCurrentGeoJSON(updatedGeoJSON)
       setFeatureCount(updatedGeoJSON.features.length)
       setGeometrySummary(summarizeGeometry(updatedGeoJSON.features))
       setStatus(`Deleted feature. ${updatedGeoJSON.features.length} feature${updatedGeoJSON.features.length === 1 ? '' : 's'} remaining.`)
