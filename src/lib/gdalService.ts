@@ -1,8 +1,9 @@
-import gdalDataUrl from 'gdal3.js/dist/package/gdal3WebAssembly.data?url'
-import gdalWasmUrl from 'gdal3.js/dist/package/gdal3WebAssembly.wasm?url'
 import type { GDALDataset } from '../types/gdalTypes'
 
 export type { GDALDataset }
+
+const gdalDataUrl = '/gdal/gdal3WebAssembly.data'
+const gdalWasmUrl = '/gdal/gdal3WebAssembly.wasm'
 
 const WASM_CACHE_KEY = 'gdal-wasm-cache'
 
@@ -26,7 +27,7 @@ export class GDALService {
         if (!window.initGdalJs) {
           await new Promise<void>((resolve, reject) => {
             const script = document.createElement('script')
-            script.src = '/node_modules/gdal3.js/dist/package/gdal3.js'
+            script.src = '/gdal/gdal3.js'
             script.onload = () => resolve()
             script.onerror = () => reject(new Error('Failed to load GDAL script'))
             document.head.appendChild(script)
