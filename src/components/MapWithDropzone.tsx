@@ -58,6 +58,8 @@ function createBasemapLayer(id: BasemapId): TileLayer<OSM | XYZ> {
 interface MapWithDropzoneProps {
   onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
   onFeatureClick?: (properties: Record<string, unknown>, pixel: [number, number]) => void
+  dataset?: FeatureCollection | null
+  measures?: { areaSqKm: number; lengthKm: number }
 }
 
 export interface MapWithDropzoneRef {
