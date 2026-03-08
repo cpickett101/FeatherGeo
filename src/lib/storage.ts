@@ -10,6 +10,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   unitSystem: 'metric'
 }
 
+const LAST_SESSION_KEY = 'feathergeo-last-session'
+
+export interface LastSession {
+  data: any
+  fileName: string
+  savedAt: number
+}
+
 export const storage = {
   setGeoData(key: string, data: any) {
     const compressed = LZString.compress(JSON.stringify(data))
@@ -19,6 +27,26 @@ export const storage = {
   getGeoData(key: string): any | null {
     const compressed = localStorage.getItem(`geo-${key}`)
     return compressed ? JSON.parse(LZString.decompress(compressed) ?? 'null') : null
+  },
+
+  saveLastSession(data: any, fileName: string) {
+    const session: LastSession = { data, fileName, savedAt: Date.now() }
+    const compressed = LZString.compress(JSON.stringify(session))
+    localStorage.setItem(LAST_SESSION_KEY, compressed)
+  },
+
+  loadLastSession(): LastSession | null {
+    const compressed = localStorage.getItem(LAST_SESSION_KEY)
+    if (!compressed) return null
+    try {
+      return JSON.parse(LZString.decompress(compressed) ?? 'null')
+    } catch {
+      return null
+    }
+  },
+
+  clearLastSession() {
+    localStorage.removeItem(LAST_SESSION_KEY)
   },
 
   // Settings management

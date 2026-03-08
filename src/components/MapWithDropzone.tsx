@@ -81,7 +81,7 @@ type ImportStatusTone = 'neutral' | 'success' | 'error'
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, onDeleteSelectedFeature, measures }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, onDeleteSelectedFeature, dataset, measures }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -183,6 +183,18 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       }
     }
   }, [])
+
+  // Render restored session data once map is ready
+  useEffect(() => {
+    if (dataset && dataset.features.length > 0 && mapInstance.current) {
+      displayGeoJSON(dataset)
+      setFeatureCount(dataset.features.length)
+      setGeometrySummary(summarizeGeometry(dataset.features))
+      setStatus(`Restored ${dataset.features.length} feature${dataset.features.length === 1 ? '' : 's'} from last session.`)
+      setStatusTone('success')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // intentionally run once on mount only
 
   const toggleSelectMode = useCallback(() => {
     const next = !selectModeRef.current

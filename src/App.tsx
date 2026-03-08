@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useRef, useCallback, useMemo } from 'react'
+import { lazy, Suspense, useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import MapWithDropzone, { type MapWithDropzoneRef } from './components/MapWithDropzone'
 import { FeaturePopup } from './components/FeaturePopup'
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
@@ -16,15 +16,28 @@ type ActiveTool = 'buffer' | 'simplify' | null
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
   const [showSettingsTray, setShowSettingsTray] = useState(false)
-  const [currentData, setCurrentData] = useState<FeatureCollection | null>(null)
+  const [currentData, setCurrentData] = useState<FeatureCollection | null>(() => {
+    const session = storage.loadLastSession()
+    return session ? session.data : null
+  })
   const [previousData, setPreviousData] = useState<FeatureCollection | null>(null)
-  const [sourceFileName, setSourceFileName] = useState<string>('feathergeo')
+  const [sourceFileName, setSourceFileName] = useState<string>(() => {
+    const session = storage.loadLastSession()
+    return session ? session.fileName : 'feathergeo'
+  })
   const [activeTool, setActiveTool] = useState<ActiveTool>(null)
   const [bufferDistance, setBufferDistance] = useState(1)
   const [simplifyTolerance, setSimplifyTolerance] = useState(0.01)
   const [toolPanelPosition, setToolPanelPosition] = useState({ left: 0, top: 0 })
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(storage.getSettings().unitSystem)
   const mapRef = useRef<MapWithDropzoneRef>(null)
+
+  // Persist last session to cookie-like localStorage on every data change
+  useEffect(() => {
+    if (currentData && currentData.features.length > 0) {
+      storage.saveLastSession(currentData, sourceFileName)
+    }
+  }, [currentData, sourceFileName])
 
   const handleSourceDataLoaded = useCallback((data: FeatureCollection, fileName?: string) => {
     setCurrentData(data)
@@ -384,7 +397,7 @@ export function App() {
           <div className="export-tray-inner">
             <div className="export-card" style={{ cursor: 'default', padding: '16px' }}>
               <span className="export-card-info" style={{ width: '100%' }}>
-                <span className="export-card-format">Measurement Units</span>
+                <span className="export-card-format" style={{ fontWeight: 'normal' }}>Measurement Units</span>
                 <select 
                   className="processor-select"
                   value={unitSystem}
@@ -392,12 +405,19 @@ export function App() {
                     const newSystem = e.target.value as UnitSystem
                     setUnitSystem(newSystem)
                     storage.setSettings({ unitSystem: newSystem })
+                    // Force re-render of measurements
+                    if (mapRef.current && currentData) {
+                      mapRef.current.updateMap(currentData)
+                    }
                   }}
                   style={{ marginTop: '8px', width: '100%' }}
                 >
                   <option value="metric">Metric (meters, kilometers)</option>
                   <option value="imperial">Imperial (feet, miles)</option>
                 </select>
+                <span className="export-card-meta" style={{ marginTop: '8px', display: 'block' }}>
+                  Preference saved automatically
+                </span>
               </span>
             </div>
           </div>
@@ -417,7 +437,7 @@ export function App() {
             >
               <span className="export-card-icon">{ }</span>
               <span className="export-card-info">
-                <span className="export-card-format">GeoJSON</span>
+                <span className="export-card-format" style={{ fontWeight: 'normal' }}>GeoJSON</span>
                 <span className="export-card-meta">{estimateSize(currentData)} · {currentData!.features.length} features</span>
               </span>
               <span className="export-card-action">{exportBusy === 'geojson' ? 'Saving…' : 'Download'}</span>
@@ -429,7 +449,7 @@ export function App() {
             >
               <span className="export-card-icon">.shp</span>
               <span className="export-card-info">
-                <span className="export-card-format">Shapefile</span>
+                <span className="export-card-format" style={{ fontWeight: 'normal' }}>Shapefile</span>
                 <span className="export-card-meta">.zip bundle · via GDAL</span>
               </span>
               <span className="export-card-action">{exportBusy === 'shp' ? 'Converting…' : 'Download'}</span>

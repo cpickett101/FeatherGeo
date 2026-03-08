@@ -1472,7 +1472,7 @@ a { color: inherit; }
   border: 1px solid rgba(255,255,255,0.1);
   border-radius: 14px;
   padding: 2rem;
-  max-width: 480px;
+  max-width: 620px;
   width: 100%;
   position: relative;
   color: #cdd6f4;
@@ -1542,10 +1542,17 @@ a { color: inherit; }
 .about-footer {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
   margin-top: 1.75rem;
   padding-top: 1.25rem;
   border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.about-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
 }
 
 .about-link {
