@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useRef, useCallback } from 'react'
+import { lazy, Suspense, useState, useRef, useCallback, useMemo } from 'react'
 import MapWithDropzone from './components/MapWithDropzone'
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
@@ -37,6 +37,40 @@ export function App() {
       mapRef.current.updateMap(data)
     }
   }
+
+  const datasetMeasures = useMemo(() => {
+    if (!currentData || !currentData.features.length) {
+      return { areaSqKm: 0, lengthKm: 0 }
+    }
+
+    let areaSqKm = 0
+    let lengthKm = 0
+
+    for (const feature of currentData.features) {
+      const geometryType = feature.geometry?.type
+
+      if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+        areaSqKm += turf.area(feature) / 1_000_000
+        try {
+          const outline = turf.polygonToLine(feature as any)
+          lengthKm += turf.length(outline, { units: 'kilometers' })
+        } catch (e) {
+          // ignore perimeter errors
+        }
+        continue
+      }
+
+      if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+        try {
+          lengthKm += turf.length(feature as any, { units: 'kilometers' })
+        } catch (e) {
+          // ignore length errors
+        }
+      }
+    }
+
+    return { areaSqKm, lengthKm }
+  }, [currentData])
 
   const applyOperation = (operation: string, params?: any) => {
     if (!currentData || !currentData.features.length) {
@@ -390,7 +424,12 @@ export function App() {
       )}
 
       <main className="app-content">
-        <MapWithDropzone ref={mapRef} onDataLoaded={handleSourceDataLoaded} />
+        <MapWithDropzone
+          ref={mapRef}
+          onDataLoaded={handleSourceDataLoaded}
+          dataset={currentData}
+          measures={datasetMeasures}
+        />
       </main>
 
       {isProcessorOpen && (

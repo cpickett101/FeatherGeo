@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { Map as OLMap, View } from 'ol'
 import { GeoJSON } from 'ol/format'
 import VectorLayer from 'ol/layer/Vector'
@@ -13,6 +13,11 @@ import JSZip from 'jszip'
 
 interface MapWithDropzoneProps {
   onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
+  dataset?: FeatureCollection | null
+  measures?: {
+    areaSqKm: number
+    lengthKm: number
+  }
 }
 
 export interface MapWithDropzoneRef {
@@ -23,7 +28,7 @@ type ImportStatusTone = 'neutral' | 'success' | 'error'
 
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, dataset, measures }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -282,6 +287,39 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   }, [])
 
   const [showDetails, setShowDetails] = useState(false)
+  const [showAttributes, setShowAttributes] = useState(false)
+  const [attributeFilter, setAttributeFilter] = useState('')
+
+  const attributeRows = useMemo(() => {
+    if (!dataset || !dataset.features?.length) return []
+
+    const rows: { featureIndex: number; key: string; value: string }[] = []
+
+    dataset.features.forEach((feature, index) => {
+      const properties = feature.properties ?? {}
+      const entries = Object.entries(properties)
+
+      if (!entries.length) {
+        rows.push({ featureIndex: index + 1, key: '(no properties)', value: '' })
+        return
+      }
+
+      for (const [key, value] of entries) {
+        rows.push({
+          featureIndex: index + 1,
+          key,
+          value: value === null || value === undefined ? '' : String(value)
+        })
+      }
+    })
+
+    const needle = attributeFilter.trim().toLowerCase()
+    if (!needle) return rows
+
+    return rows.filter(row => {
+      return row.key.toLowerCase().includes(needle) || row.value.toLowerCase().includes(needle)
+    })
+  }, [dataset, attributeFilter])
 
   // Expose updateMap method to parent via ref
   useImperativeHandle(ref, () => ({
@@ -337,6 +375,74 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             <span className="stat-label">Geometry</span>
             <strong>{geometrySummary}</strong>
           </div>
+        </div>
+
+        <div className="panel-section">
+          <h3>Measures</h3>
+          <div className="stats-grid measures-grid">
+            <div className="stat-card">
+              <span className="stat-label">Total area</span>
+              <strong>{(measures?.areaSqKm ?? 0).toFixed(2)} km²</strong>
+            </div>
+            <div className="stat-card">
+              <span className="stat-label">Total length</span>
+              <strong>{(measures?.lengthKm ?? 0).toFixed(2)} km</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="panel-section">
+          <div className="panel-header">
+            <h3>Attributes</h3>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setShowAttributes(!showAttributes)}
+              disabled={!dataset || !dataset.features?.length}
+            >
+              {showAttributes ? 'Hide' : 'Show'} table
+            </button>
+          </div>
+
+          {showAttributes && (
+            <div className="attribute-panel">
+              <input
+                type="text"
+                className="attribute-filter"
+                value={attributeFilter}
+                onChange={(e) => setAttributeFilter(e.target.value)}
+                placeholder="Filter attributes..."
+              />
+              <p className="attribute-meta">
+                Showing {Math.min(attributeRows.length, 50)} of {attributeRows.length} rows
+              </p>
+              <div className="attribute-table-wrap">
+                <table className="attribute-table">
+                  <thead>
+                    <tr>
+                      <th>Feature</th>
+                      <th>Key</th>
+                      <th>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attributeRows.slice(0, 50).map((row, idx) => (
+                      <tr key={`${row.featureIndex}-${row.key}-${idx}`}>
+                        <td>{row.featureIndex}</td>
+                        <td>{row.key}</td>
+                        <td>{row.value || '—'}</td>
+                      </tr>
+                    ))}
+                    {!attributeRows.length && (
+                      <tr>
+                        <td colSpan={3}>No attributes found.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
 
         {loadedFiles.length > 0 && (
