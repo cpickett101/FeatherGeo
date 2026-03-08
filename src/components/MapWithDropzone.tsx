@@ -75,6 +75,12 @@ export interface MapWithDropzoneRef {
   getSelectedIndices: () => number[]
 }
 
+type IndexedFeatureLike = FeatureLike & {
+  get?: (key: string) => unknown
+}
+
+type RemovableFeature = OLFeature<Geometry>
+
 type ImportStatusTone = 'neutral' | 'success' | 'error'
 
 
@@ -275,7 +281,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       if (last) selectedFeaturesRef.current.add(last)
       vectorLayerRef.current?.changed()
     }
-  }, [onFeatureClick])
+  }, [])
 
   const switchBasemap = useCallback((id: BasemapId) => {
     const map = mapInstance.current
@@ -591,8 +597,11 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     },
     getSelectedIndices: () => {
       return Array.from(selectedFeaturesRef.current)
-        .map(f => (f as any).get?.('_idx') as number)
-        .filter(i => i !== undefined)
+        .map((feature) => {
+          const idx = (feature as IndexedFeatureLike).get?.('_idx')
+          return typeof idx === 'number' ? idx : undefined
+        })
+        .filter((index): index is number => index !== undefined)
     },
     deleteSelectedFeature: () => {
       const feature = selectedFeatureRef.current
@@ -606,7 +615,9 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       if (toDelete.length === 0) return null
 
       for (const f of toDelete) {
-        source.removeFeature(f as any)
+        if (f instanceof OLFeature) {
+          source.removeFeature(f as RemovableFeature)
+        }
       }
       selectedFeatureRef.current = null
       selectedFeaturesRef.current.clear()
@@ -629,7 +640,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       onFeatureClick?.({} as Record<string, unknown>, [0, 0])
       return updatedGeoJSON
     }
-  }), [displayGeoJSON])
+  }), [displayGeoJSON, onFeatureClick])
 
   return (
     <section className="map-workspace">

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import MapWithDropzone, { type MapWithDropzoneRef } from './components/MapWithDropzone'
 import { FeaturePopup } from './components/FeaturePopup'
-import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
+import type { Feature, FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
 import { storage, UnitSystem } from './lib/storage'
 import { getDistanceUnit, convertDistanceToKm } from './lib/units'
@@ -12,6 +12,12 @@ const GeoProcessor = lazy(() =>
 )
 
 type ActiveTool = 'buffer' | 'simplify' | null
+type OperationParams = {
+  distance?: number
+  tolerance?: number
+}
+
+type PolygonFeature = Feature<Polygon | MultiPolygon>
 
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
@@ -69,17 +75,17 @@ export function App() {
       if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
         areaSqKm += turf.area(feature) / 1_000_000
         try {
-          const outline = turf.polygonToLine(feature as any)
+          const outline = turf.polygonToLine(feature as PolygonFeature)
           lengthKm += turf.length(outline, { units: 'kilometers' })
-        } catch (e) {
+        } catch (_e) {
           // ignore perimeter errors
         }
         continue
       }
       if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
         try {
-          lengthKm += turf.length(feature as any, { units: 'kilometers' })
-        } catch (e) {
+          lengthKm += turf.length(feature as Feature<LineString | MultiLineString>, { units: 'kilometers' })
+        } catch (_e) {
           // ignore length errors
         }
       }
@@ -96,7 +102,7 @@ export function App() {
     }
   }
 
-  const applyOperation = (operation: string, params?: any) => {
+  const applyOperation = (operation: string, params?: OperationParams) => {
     if (!currentData || !currentData.features.length) return
 
     try {
@@ -158,8 +164,9 @@ export function App() {
 
       handleDataProcessed(result)
       setActiveTool(null)
-    } catch (e: any) {
-      alert(`Error: ${e.message}`)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error'
+      alert(`Error: ${message}`)
     }
   }
 
@@ -259,13 +266,14 @@ export function App() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
-    } catch (e: any) {
-      alert(`Shapefile export failed: ${e.message}. Try GeoJSON instead.`)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error'
+      alert(`Shapefile export failed: ${message}. Try GeoJSON instead.`)
     } finally {
       setExportBusy(null)
       setShowExportTray(false)
     }
-  }, [currentData, makeExportName])
+  }, [currentData, sourceFileName])
 
   const hasData = currentData && currentData.features.length > 0
 

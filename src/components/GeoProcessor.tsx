@@ -3,6 +3,14 @@ import type { Feature, FeatureCollection, Polygon, MultiPolygon, GeoJsonProperti
 import * as turf from '@turf/turf'
 import { getDistanceUnit, convertDistanceToKm } from '../lib/units'
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return 'Unknown error'
+}
+
 function isPolygonFeature(
   feature: Feature<Polygon | MultiPolygon, GeoJsonProperties> | null | undefined
 ): feature is Feature<Polygon | MultiPolygon, GeoJsonProperties> {
@@ -54,7 +62,7 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
           const buffered = currentData.features.map(feature => {
             try {
               return turf.buffer(feature, distanceKm, { units: 'kilometers' })
-            } catch (e) {
+            } catch (_e) {
               return null
             }
           }).filter(isPolygonFeature)
@@ -66,7 +74,7 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
           const simplified = currentData.features.map(feature => {
             try {
               return turf.simplify(feature, { tolerance: simplifyTolerance, highQuality: false })
-            } catch (e) {
+            } catch (_e) {
               return feature
             }
           })
@@ -78,7 +86,7 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
           const centroids = currentData.features.map(feature => {
             try {
               return turf.centroid(feature)
-            } catch (e) {
+            } catch (_e) {
               return null
             }
           }).filter(f => f !== null)
@@ -97,7 +105,7 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
             try {
               const bbox = turf.bbox(feature)
               return turf.bboxPolygon(bbox)
-            } catch (e) {
+            } catch (_e) {
               return null
             }
           }).filter(isPolygonOnlyFeature)
@@ -111,8 +119,8 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
 
       onDataProcessed(result)
       setStatus(`complete — ${result.features.length} feature(s) generated`)
-    } catch (e: any) {
-      setStatus(`error: ${e.message}`)
+    } catch (error: unknown) {
+      setStatus(`error: ${getErrorMessage(error)}`)
     }
   }
 

@@ -1,3 +1,4 @@
+import type { FeatureCollection } from 'geojson'
 import LZString from 'lz-string'
 
 export type UnitSystem = 'metric' | 'imperial'
@@ -13,23 +14,27 @@ const DEFAULT_SETTINGS: AppSettings = {
 const LAST_SESSION_KEY = 'feathergeo-last-session'
 
 export interface LastSession {
-  data: any
+  data: FeatureCollection
   fileName: string
   savedAt: number
 }
 
+interface CacheMeta {
+  timestamp?: number
+}
+
 export const storage = {
-  setGeoData(key: string, data: any) {
+  setGeoData<T>(key: string, data: T) {
     const compressed = LZString.compress(JSON.stringify(data))
     localStorage.setItem(`geo-${key}`, compressed)
   },
 
-  getGeoData(key: string): any | null {
+  getGeoData<T>(key: string): T | null {
     const compressed = localStorage.getItem(`geo-${key}`)
-    return compressed ? JSON.parse(LZString.decompress(compressed) ?? 'null') : null
+    return compressed ? JSON.parse(LZString.decompress(compressed) ?? 'null') as T | null : null
   },
 
-  saveLastSession(data: any, fileName: string) {
+  saveLastSession(data: FeatureCollection, fileName: string) {
     const session: LastSession = { data, fileName, savedAt: Date.now() }
     const compressed = LZString.compress(JSON.stringify(session))
     localStorage.setItem(LAST_SESSION_KEY, compressed)
@@ -65,8 +70,8 @@ export const storage = {
   clearOldCaches(maxAgeMs = 7 * 24 * 60 * 60 * 1000) {
     Object.keys(localStorage).forEach(key => {
       if (key.startsWith('gdal-meta-')) {
-        const meta = JSON.parse(localStorage.getItem(key) || '{}')
-        if (Date.now() - meta.timestamp > maxAgeMs) {
+        const meta = JSON.parse(localStorage.getItem(key) || '{}') as CacheMeta
+        if (typeof meta.timestamp === 'number' && Date.now() - meta.timestamp > maxAgeMs) {
           localStorage.removeItem(key)
         }
       }

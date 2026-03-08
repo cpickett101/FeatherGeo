@@ -1,6 +1,16 @@
+import type { GDALApi, InitOptions } from 'gdal3.js'
 import type { GDALDataset } from '../types/gdalTypes'
 
 export type { GDALDataset }
+
+interface GDALError {
+  no?: number
+  message?: string
+}
+
+interface GDALInfoCorners {
+  corners?: number[][]
+}
 
 const gdalDataUrl = '/gdal/gdal3WebAssembly.data'
 const gdalWasmUrl = '/gdal/gdal3WebAssembly.wasm'
@@ -10,13 +20,13 @@ const WASM_CACHE_KEY = 'gdal-wasm-cache'
 // Declare the global initGdalJs function that will be loaded from the script
 declare global {
   interface Window {
-    initGdalJs: any
+    initGdalJs?: (options?: InitOptions) => Promise<GDALApi>
   }
 }
 
 export class GDALService {
   private static instance: GDALService
-  private gdal!: any
+  private gdal!: GDALApi
 
   static async getInstance(): Promise<GDALService> {
     if (!this.instance) {
@@ -112,9 +122,14 @@ export class GDALService {
   }
 
   async processShapefile(files: File[]): Promise<GeoJSON.FeatureCollection> {
-    const { datasets, errors } = await this.gdal.open(files)
+    const dataTransfer = new DataTransfer()
+    for (const file of files) {
+      dataTransfer.items.add(file)
+    }
 
-    const realErrors = errors.filter((e: any) => e.no !== 0)
+    const { datasets, errors } = await this.gdal.open(dataTransfer.files)
+
+    const realErrors = errors.filter((e: GDALError) => e.no !== 0)
     if (realErrors.length) {
       console.error('GDAL errors:', realErrors)
     }
@@ -178,7 +193,7 @@ export class GDALService {
     }
   }
 
-  private getBoundsFromInfo(info: any, dataset: GDALDataset): number[][] {
+  private getBoundsFromInfo(info: GDALInfoCorners | undefined, dataset: GDALDataset): number[][] {
     // Use corners from gdalinfo if available, otherwise fall back to pixel dimensions
     if (info?.corners) {
       const c = info.corners
