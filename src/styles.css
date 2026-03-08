@@ -758,22 +758,25 @@ a { color: inherit; }
 
 /* ── Stats ─────────────────────────────────────────── */
 .stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 1px;
   background: var(--c-border);
   border-bottom: 1px solid var(--c-border);
+  overflow-x: auto;
 }
 
 .stat-card {
-  padding: 12px 20px;
+  padding: 8px 12px;
   background: var(--c-surface);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
 }
 
 .stat-label {
   display: block;
   margin-bottom: 2px;
-  font-size: 0.65rem;
+  font-size: 0.6rem;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -782,7 +785,7 @@ a { color: inherit; }
 
 .stat-card strong {
   display: block;
-  font-size: 0.88rem;
+  font-size: 0.8rem;
   color: var(--c-text);
   font-weight: 400;
 }
@@ -1332,7 +1335,7 @@ a { color: inherit; }
   max-height: 360px;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
   animation: popup-in 120ms ease;
 }
 
@@ -1348,6 +1351,7 @@ a { color: inherit; }
   padding: 10px 14px 8px;
   border-bottom: 1px solid var(--c-border);
   flex-shrink: 0;
+  overflow: visible;
 }
 
 .feature-popup-header-actions {
@@ -1366,10 +1370,49 @@ a { color: inherit; }
   padding: 2px 4px;
   border-radius: 4px;
   transition: background var(--transition), color var(--transition);
+  position: relative;
 }
 .feature-popup-delete:hover {
   background: rgba(239, 68, 68, 0.12);
   color: #ef4444;
+}
+
+.feature-popup-delete::after {
+  content: 'Delete feature';
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--c-text);
+  color: var(--c-surface);
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 10000;
+}
+
+.feature-popup-delete::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 1px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--c-text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 10000;
+}
+
+.feature-popup-delete:hover::after,
+.feature-popup-delete:hover::before {
+  opacity: 1;
 }
 
 .feature-popup-title {
@@ -1399,6 +1442,7 @@ a { color: inherit; }
 .feature-popup-body {
   overflow-y: auto;
   padding: 8px 0;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
 .feature-popup-empty {

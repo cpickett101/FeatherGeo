@@ -18,6 +18,8 @@ import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 import { formatArea, formatDistance } from '../lib/units'
 
+type CanvasGetContext = typeof HTMLCanvasElement.prototype.getContext
+
 const BASEMAPS = [
   { id: 'osm', label: 'Streets' },
   { id: 'satellite', label: 'Satellite' },
@@ -105,6 +107,23 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   useEffect(() => {
     if (!mapRef.current) return
 
+    // Patch canvas context creation to optimize for frequent pixel reads
+    const originalGetContext: CanvasGetContext = HTMLCanvasElement.prototype.getContext
+    HTMLCanvasElement.prototype.getContext = (function (
+      this: HTMLCanvasElement,
+      contextId: string,
+      options?: unknown,
+    ) {
+      if (contextId === '2d') {
+        return originalGetContext.call(this, contextId, {
+          ...(options as CanvasRenderingContext2DSettings | undefined),
+          willReadFrequently: true,
+        })
+      }
+
+      return originalGetContext.call(this, contextId as 'bitmaprenderer' | 'webgl' | 'webgl2', options as ImageBitmapRenderingContextSettings & WebGLContextAttributes)
+    }) as CanvasGetContext
+
     const basemapLayer = createBasemapLayer('osm')
     basemapLayerRef.current = basemapLayer
 
@@ -114,7 +133,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       view: new View({
         center: fromLonLat([0, 0]),
         zoom: 2
-      })
+      }),
     });
 
     mapInstance.current = map
@@ -175,6 +194,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     })
 
     return () => {
+      // Restore original getContext
+      HTMLCanvasElement.prototype.getContext = originalGetContext
       if (map) {
         map.setTarget(undefined)
       }
@@ -294,10 +315,22 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
   const summarizeGeometry = (features: FeatureCollection['features']) => {
     const counts: Record<string, number> = {}
+    
+    // Map geometry types to shorter names
+    const typeMap: Record<string, string> = {
+      'LineString': 'Line',
+      'MultiLineString': 'MultiLine',
+      'Polygon': 'Polygon',
+      'MultiPolygon': 'MultiPolygon',
+      'Point': 'Point',
+      'MultiPoint': 'MultiPoint',
+      'GeometryCollection': 'Collection'
+    }
 
     for (const feature of features) {
       const geometryType = feature.geometry?.type ?? 'Unknown'
-      counts[geometryType] = (counts[geometryType] ?? 0) + 1
+      const shortType = typeMap[geometryType] ?? geometryType
+      counts[shortType] = (counts[shortType] ?? 0) + 1
     }
 
     const entries = Object.entries(counts)
