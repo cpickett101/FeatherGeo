@@ -67,6 +67,7 @@ export interface MapWithDropzoneRef {
 }
 
 type ImportStatusTone = 'neutral' | 'success' | 'error'
+type MapTool = 'select' | 'delete'
 
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
@@ -87,6 +88,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [featureCount, setFeatureCount] = useState(0)
   const [geometrySummary, setGeometrySummary] = useState<string>('No data loaded')
   const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
+  const [activeTool, setActiveTool] = useState<MapTool>('select')
+  const [currentGeoJSON, setCurrentGeoJSON] = useState<FeatureCollection | null>(null)
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -109,14 +112,45 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     map.on('click', (evt) => {
       const feature = map.forEachFeatureAtPixel(evt.pixel, (f) => f)
       if (feature) {
-        selectedFeatureRef.current = feature
-        // Trigger re-render of vector layer to apply highlight style
-        vectorLayerRef.current?.changed()
-        const props = (feature.getProperties?.() ?? {}) as Record<string, unknown>
-        // Remove geometry key from display
-        const { geometry: _g, ...displayProps } = props
-        const nativeEvt = evt.originalEvent as MouseEvent
-        onFeatureClick?.(displayProps, [nativeEvt.clientX, nativeEvt.clientY])
+        if (activeTool === 'delete') {
+          // Delete the feature
+          const source = vectorLayerRef.current?.getSource()
+          if (source) {
+            source.removeFeature(feature as any)
+            
+            // Update the current GeoJSON data
+            if (currentGeoJSON) {
+              const format = new GeoJSON()
+              const remainingFeatures = source.getFeatures()
+              const updatedGeoJSON: FeatureCollection = {
+                type: 'FeatureCollection',
+                features: remainingFeatures.map(f => 
+                  format.writeFeatureObject(f, {
+                    dataProjection: 'EPSG:4326',
+                    featureProjection: 'EPSG:3857',
+                  })
+                )
+              }
+              setCurrentGeoJSON(updatedGeoJSON)
+              setFeatureCount(updatedGeoJSON.features.length)
+              setGeometrySummary(summarizeGeometry(updatedGeoJSON.features))
+              setStatus(`Deleted feature. ${updatedGeoJSON.features.length} feature${updatedGeoJSON.features.length === 1 ? '' : 's'} remaining.`)
+              setStatusTone('success')
+              onDataLoaded?.(updatedGeoJSON)
+            }
+            
+            selectedFeatureRef.current = null
+            onFeatureClick?.({} as Record<string, unknown>, [0, 0])
+          }
+        } else {
+          // Select mode - highlight and show properties
+          selectedFeatureRef.current = feature
+          vectorLayerRef.current?.changed()
+          const props = (feature.getProperties?.() ?? {}) as Record<string, unknown>
+          const { geometry: _g, ...displayProps } = props
+          const nativeEvt = evt.originalEvent as MouseEvent
+          onFeatureClick?.(displayProps, [nativeEvt.clientX, nativeEvt.clientY])
+        }
       } else {
         selectedFeatureRef.current = null
         vectorLayerRef.current?.changed()
@@ -128,7 +162,11 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     map.on('pointermove', (evt) => {
       const hit = map.hasFeatureAtPixel(evt.pixel)
       const target = map.getTargetElement() as HTMLElement
-      target.style.cursor = hit ? 'pointer' : ''
+      if (activeTool === 'delete') {
+        target.style.cursor = hit ? 'crosshair' : ''
+      } else {
+        target.style.cursor = hit ? 'pointer' : ''
+      }
     })
 
     return () => {
@@ -195,6 +233,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const displayGeoJSON = useCallback((geojson: FeatureCollection) => {
     const map = mapInstance.current
     if (!map) return
+
+    setCurrentGeoJSON(geojson)
 
     if (vectorLayerRef.current) {
       map.removeLayer(vectorLayerRef.current)
@@ -405,6 +445,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       vectorLayerRef.current = null
     }
     selectedFeatureRef.current = null
+    setCurrentGeoJSON(null)
 
     setLoadedFiles([])
     setFeatureCount(0)
@@ -517,7 +558,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
         {showDetails && (
           <div className="details-section">
-            <h3>File requirements</h3>
+            <p className="stat-label">File requirements</p>
             <ul className="guidance-list">
               <li>GeoJSON: drop a .geojson or .json file</li>
               <li>Shapefile required: .shp (geometry) + .shx (index)</li>
@@ -531,7 +572,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         <div className="panel-attribution">
           Built by{' '}
           <a
-            href="https://www.linkedin.com/in/christopher-pickett-gisp-a4908979/"
+            href="https://github.com/cpickett101"
             target="_blank"
             rel="noopener noreferrer"
           >
@@ -582,6 +623,32 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
               </button>
             ))}
           </div>
+
+          {featureCount > 0 && (
+            <div className="map-toolbar">
+              <button
+                className={`tool-btn${activeTool === 'select' ? ' is-active' : ''}`}
+                onClick={() => setActiveTool('select')}
+                title="Select features"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+                </svg>
+              </button>
+              <button
+                className={`tool-btn${activeTool === 'delete' ? ' is-active' : ''}`}
+                onClick={() => setActiveTool('delete')}
+                title="Delete features"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </section>

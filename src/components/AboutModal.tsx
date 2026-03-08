@@ -30,26 +30,27 @@ export function AboutModal({ onClose }: AboutModalProps) {
           <h2 id="about-title">Feather<span className="app-logo-accent">Geo</span></h2>
         </div>
 
-        <p className="about-tagline">A lightweight, browser-based GIS tool — no server required.</p>
+        <p className="about-tagline">A lightweight, browser-based GIS tool.</p>
 
         <div className="about-body">
           <h3>About the project</h3>
           <p>
-            FeatherGeo was built to make basic GIS work accessible without the overhead of desktop software or cloud uploads.
-            Drop in a shapefile or GeoJSON, inspect your features, run spatial operations like buffer, simplify, or convex hull,
-            and export the result — all without your data ever leaving the browser.
+            FeatherGeo was built to make basic GIS work accessible without the overhead of desktop software.
+            <p></p>
+            Drop in a layer, inspect your features, run spatial operations like buffer, simplify, or convex hull,
+            and export the result, all without your data ever leaving the browser.
           </p>
 
           <h3>About me</h3>
           <p>
-            I'm <a href="https://www.linkedin.com/in/christopher-pickett-gisp-a4908979/" target="_blank" rel="noopener noreferrer">Christopher Pickett</a>, a
-            GIS professional (GISP) with a background in spatial analysis, data engineering, and web mapping.
+            I'm <a href="https://github.com/cpickett101" target="_blank" rel="noopener noreferrer">Christopher Pickett</a>, a
+            GIS professional with a decade of experience in desktop spatial analysis, and geospatial web mapping.
+            <p></p>
             I built FeatherGeo because I kept running into situations where I needed a quick way to preview or
-            process a shapefile without spinning up QGIS or uploading sensitive data to an external service.
+            process a shapefile without spinning up QGIS.
           </p>
           <p>
-            The stack is React + OpenLayers + GDAL (compiled to WebAssembly via gdal3.js), which means real
-            shapefile support — not just GeoJSON — runs entirely in your browser.
+            The stack is React + OpenLayers + GDAL (compiled to WebAssembly via gdal3.js), runs entirely in your browser.
           </p>
         </div>
 
