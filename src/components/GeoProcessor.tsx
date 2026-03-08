@@ -8,6 +8,12 @@ function isPolygonFeature(
   return feature != null
 }
 
+function isPolygonOnlyFeature(
+  feature: Feature<Polygon, GeoJsonProperties> | null | undefined
+): feature is Feature<Polygon, GeoJsonProperties> {
+  return feature != null
+}
+
 type OperationType = 'buffer' | 'simplify' | 'centroid' | 'convexHull' | 'bbox'
 
 interface GeoProcessorProps {
@@ -92,7 +98,7 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
             } catch (e) {
               return null
             }
-          }).filter(isPolygonFeature)
+          }).filter(isPolygonOnlyFeature)
           result = turf.featureCollection(boxes)
           break
         }
@@ -204,7 +210,9 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
             </>
           )}
         </div>
-
+      </div>
+    </>
+  )
 }
 
 export default GeoProcessor

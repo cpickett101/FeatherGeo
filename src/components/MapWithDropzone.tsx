@@ -1,23 +1,65 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
+import { AboutModal } from './AboutModal'
 import { Map as OLMap, View } from 'ol'
 import { GeoJSON } from 'ol/format'
 import VectorLayer from 'ol/layer/Vector'
 import TileLayer from 'ol/layer/Tile'
 import VectorSource from 'ol/source/Vector'
 import OSM from 'ol/source/OSM'
-import { Fill, Stroke, Style } from 'ol/style'
+import XYZ from 'ol/source/XYZ'
+import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style'
+import type { FeatureLike } from 'ol/Feature'
 import { fromLonLat } from 'ol/proj'
 import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 
+const BASEMAPS = [
+  { id: 'osm', label: 'Streets' },
+  { id: 'satellite', label: 'Satellite' },
+  { id: 'topo', label: 'Topo' },
+  { id: 'dark', label: 'Dark' },
+] as const
+
+type BasemapId = typeof BASEMAPS[number]['id']
+
+function createBasemapLayer(id: BasemapId): TileLayer<OSM | XYZ> {
+  switch (id) {
+    case 'satellite':
+      return new TileLayer({
+        source: new XYZ({
+          url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+          attributions: 'Tiles © Esri',
+          maxZoom: 19,
+        }),
+      })
+    case 'topo':
+      return new TileLayer({
+        source: new XYZ({
+          url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+          attributions: '© OpenTopoMap contributors',
+          maxZoom: 17,
+        }),
+      })
+    case 'dark':
+      return new TileLayer({
+        source: new XYZ({
+          url: 'https://{a-c}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+          attributions: '© CARTO',
+          maxZoom: 19,
+        }),
+      })
+    case 'osm':
+    default:
+      return new TileLayer({ source: new OSM() })
+  }
+}
+
 interface MapWithDropzoneProps {
   onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
+  onFeatureClick?: (properties: Record<string, unknown>, pixel: [number, number]) => void
   dataset?: FeatureCollection | null
-  measures?: {
-    areaSqKm: number
-    lengthKm: number
-  }
+  measures?: { areaSqKm: number; lengthKm: number }
 }
 
 export interface MapWithDropzoneRef {
@@ -27,31 +69,34 @@ export interface MapWithDropzoneRef {
 type ImportStatusTone = 'neutral' | 'success' | 'error'
 
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
+const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, dataset, measures }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
+  const basemapLayerRef = useRef<TileLayer<OSM | XYZ> | null>(null)
   const vectorLayerRef = useRef<VectorLayer<VectorSource> | null>(null)
+  const selectedFeatureRef = useRef<FeatureLike | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [status, setStatus] = useState('Select or drop shapefile components to render them on the map.')
+  const [status, setStatus] = useState('Select or drop a shapefile or GeoJSON file to render it on the map.')
   const [statusTone, setStatusTone] = useState<ImportStatusTone>('neutral')
   const [loadedFiles, setLoadedFiles] = useState<string[]>([])
   const [featureCount, setFeatureCount] = useState(0)
   const [geometrySummary, setGeometrySummary] = useState<string>('No data loaded')
+  const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
 
   useEffect(() => {
     if (!mapRef.current) return;
 
+    const basemapLayer = createBasemapLayer('osm')
+    basemapLayerRef.current = basemapLayer
+
     const map = new OLMap({
       target: mapRef.current,
-      layers: [
-        new TileLayer({
-          source: new OSM()
-        })
-      ],
+      layers: [basemapLayer],
       view: new View({
         center: fromLonLat([0, 0]),
         zoom: 2
@@ -60,11 +105,50 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
     mapInstance.current = map
 
+    // Click handler for feature inspection
+    map.on('click', (evt) => {
+      const feature = map.forEachFeatureAtPixel(evt.pixel, (f) => f)
+      if (feature) {
+        selectedFeatureRef.current = feature
+        // Trigger re-render of vector layer to apply highlight style
+        vectorLayerRef.current?.changed()
+        const props = (feature.getProperties?.() ?? {}) as Record<string, unknown>
+        // Remove geometry key from display
+        const { geometry: _g, ...displayProps } = props
+        const nativeEvt = evt.originalEvent as MouseEvent
+        onFeatureClick?.(displayProps, [nativeEvt.clientX, nativeEvt.clientY])
+      } else {
+        selectedFeatureRef.current = null
+        vectorLayerRef.current?.changed()
+        onFeatureClick?.({} as Record<string, unknown>, [0, 0])
+      }
+    })
+
+    // Pointer cursor on hover
+    map.on('pointermove', (evt) => {
+      const hit = map.hasFeatureAtPixel(evt.pixel)
+      const target = map.getTargetElement() as HTMLElement
+      target.style.cursor = hit ? 'pointer' : ''
+    })
+
     return () => {
       if (map) {
         map.setTarget(undefined)
       }
     }
+  }, [])
+
+  const switchBasemap = useCallback((id: BasemapId) => {
+    const map = mapInstance.current
+    if (!map) return
+    if (basemapLayerRef.current) {
+      map.removeLayer(basemapLayerRef.current)
+    }
+    const newLayer = createBasemapLayer(id)
+    // Insert at index 0 so vector layer stays on top
+    map.getLayers().insertAt(0, newLayer)
+    basemapLayerRef.current = newLayer
+    setActiveBasemap(id)
   }, [])
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -125,15 +209,23 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
     const newVectorLayer = new VectorLayer({
       source: vectorSource,
-      style: new Style({
-        fill: new Fill({
-          color: 'rgba(14, 116, 144, 0.18)',
-        }),
-        stroke: new Stroke({
-          color: '#0f766e',
-          width: 2,
-        }),
-      }),
+      style: (feature) => {
+        const isSelected = selectedFeatureRef.current === feature
+        const type = feature.getGeometry()?.getType()
+        if (type === 'Point' || type === 'MultiPoint') {
+          return new Style({
+            image: new CircleStyle({
+              radius: isSelected ? 10 : 7,
+              fill: new Fill({ color: isSelected ? '#f59e0b' : '#4f46e5' }),
+              stroke: new Stroke({ color: '#fff', width: 2 }),
+            }),
+          })
+        }
+        return new Style({
+          fill: new Fill({ color: isSelected ? 'rgba(245, 158, 11, 0.22)' : 'rgba(79, 70, 229, 0.15)' }),
+          stroke: new Stroke({ color: isSelected ? '#f59e0b' : '#4f46e5', width: isSelected ? 3 : 2 }),
+        })
+      },
     })
 
     map.addLayer(newVectorLayer)
@@ -150,6 +242,40 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   }, [])
 
   const processFiles = useCallback(async (files: File[]) => {
+    // Check for GeoJSON file first
+    const geojsonFile = files.find(file =>
+      GEOJSON_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext))
+    )
+
+    if (geojsonFile) {
+      setIsProcessing(true)
+      setStatusTone('neutral')
+      setStatus(`Reading ${geojsonFile.name}...`)
+      setLoadedFiles([geojsonFile.name])
+      try {
+        const text = await geojsonFile.text()
+        const parsed = JSON.parse(text) as FeatureCollection
+        if (!parsed.features || !Array.isArray(parsed.features)) {
+          throw new Error('File does not contain a valid GeoJSON FeatureCollection')
+        }
+        displayGeoJSON(parsed)
+        onDataLoaded?.(parsed, geojsonFile.name)
+        setFeatureCount(parsed.features.length)
+        setGeometrySummary(summarizeGeometry(parsed.features))
+        setStatus(`Loaded ${parsed.features.length} feature${parsed.features.length === 1 ? '' : 's'} on the map.`)
+        setStatusTone('success')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        setFeatureCount(0)
+        setGeometrySummary('Import failed')
+        setStatus(`GeoJSON import failed: ${message}`)
+        setStatusTone('error')
+      } finally {
+        setIsProcessing(false)
+      }
+      return
+    }
+
     // Check if there's a zip file
     const zipFile = files.find(file => file.name.toLowerCase().endsWith('.zip'))
     
@@ -278,48 +404,17 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       map.removeLayer(vectorLayerRef.current)
       vectorLayerRef.current = null
     }
+    selectedFeatureRef.current = null
 
     setLoadedFiles([])
     setFeatureCount(0)
     setGeometrySummary('No data loaded')
-    setStatus('Map cleared. Select or drop shapefile components to load another dataset.')
+    setStatus('Map cleared. Select or drop a shapefile or GeoJSON file to load another dataset.')
     setStatusTone('neutral')
   }, [])
 
   const [showDetails, setShowDetails] = useState(false)
-  const [showAttributes, setShowAttributes] = useState(false)
-  const [attributeFilter, setAttributeFilter] = useState('')
-
-  const attributeRows = useMemo(() => {
-    if (!dataset || !dataset.features?.length) return []
-
-    const rows: { featureIndex: number; key: string; value: string }[] = []
-
-    dataset.features.forEach((feature, index) => {
-      const properties = feature.properties ?? {}
-      const entries = Object.entries(properties)
-
-      if (!entries.length) {
-        rows.push({ featureIndex: index + 1, key: '(no properties)', value: '' })
-        return
-      }
-
-      for (const [key, value] of entries) {
-        rows.push({
-          featureIndex: index + 1,
-          key,
-          value: value === null || value === undefined ? '' : String(value)
-        })
-      }
-    })
-
-    const needle = attributeFilter.trim().toLowerCase()
-    if (!needle) return rows
-
-    return rows.filter(row => {
-      return row.key.toLowerCase().includes(needle) || row.value.toLowerCase().includes(needle)
-    })
-  }, [dataset, attributeFilter])
+  const [showAbout, setShowAbout] = useState(false)
 
   // Expose updateMap method to parent via ref
   useImperativeHandle(ref, () => ({
@@ -337,7 +432,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       <aside className="panel import-panel">
         <div className="panel-section">
           <p className="panel-kicker">Import</p>
-          <h2>Shapefile</h2>
+          <h2>Shapefile / GeoJSON</h2>
         </div>
 
         <div
@@ -360,7 +455,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             ref={fileInputRef}
             className="sr-only"
             type="file"
-            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj,.shp.xml,.zip"
+            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj,.shp.xml,.zip,.geojson,.json"
             multiple
             onChange={handleFileSelection}
           />
@@ -377,80 +472,15 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           </div>
         </div>
 
-        <div className="panel-section">
-          <h3>Measures</h3>
-          <div className="stats-grid measures-grid">
-            <div className="stat-card">
-              <span className="stat-label">Total area</span>
-              <strong>{(measures?.areaSqKm ?? 0).toFixed(2)} km²</strong>
-            </div>
-            <div className="stat-card">
-              <span className="stat-label">Total length</span>
-              <strong>{(measures?.lengthKm ?? 0).toFixed(2)} km</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel-section">
-          <div className="panel-header">
-            <h3>Attributes</h3>
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => setShowAttributes(!showAttributes)}
-              disabled={!dataset || !dataset.features?.length}
-            >
-              {showAttributes ? 'Hide' : 'Show'} table
-            </button>
-          </div>
-
-          {showAttributes && (
-            <div className="attribute-panel">
-              <input
-                type="text"
-                className="attribute-filter"
-                value={attributeFilter}
-                onChange={(e) => setAttributeFilter(e.target.value)}
-                placeholder="Filter attributes..."
-              />
-              <p className="attribute-meta">
-                Showing {Math.min(attributeRows.length, 50)} of {attributeRows.length} rows
-              </p>
-              <div className="attribute-table-wrap">
-                <table className="attribute-table">
-                  <thead>
-                    <tr>
-                      <th>Feature</th>
-                      <th>Key</th>
-                      <th>Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attributeRows.slice(0, 50).map((row, idx) => (
-                      <tr key={`${row.featureIndex}-${row.key}-${idx}`}>
-                        <td>{row.featureIndex}</td>
-                        <td>{row.key}</td>
-                        <td>{row.value || '—'}</td>
-                      </tr>
-                    ))}
-                    {!attributeRows.length && (
-                      <tr>
-                        <td colSpan={3}>No attributes found.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-
         {loadedFiles.length > 0 && (
           <div className="panel-section">
             <h3>Source</h3>
             <ul className="file-chip-list">
               {loadedFiles
-                .filter(fileName => fileName.toLowerCase().endsWith('.shp'))
+                .filter(fileName => {
+                  const lower = fileName.toLowerCase()
+                  return lower.endsWith('.shp') || GEOJSON_EXTENSIONS.some(ext => lower.endsWith(ext))
+                })
                 .map((fileName) => (
                   <li key={fileName} className="file-chip">
                     {fileName}
@@ -489,13 +519,31 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           <div className="details-section">
             <h3>File requirements</h3>
             <ul className="guidance-list">
-              <li>Required: .shp (geometry) + .shx (index)</li>
+              <li>GeoJSON: drop a .geojson or .json file</li>
+              <li>Shapefile required: .shp (geometry) + .shx (index)</li>
               <li>Recommended: .dbf (attributes)</li>
               <li>Optional: .prj (projection), .cpg (encoding)</li>
               <li>Or upload a single .zip file</li>
             </ul>
           </div>
         )}
+
+        <div className="panel-attribution">
+          Built by{' '}
+          <a
+            href="https://www.linkedin.com/in/christopher-pickett-gisp-a4908979/"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Christopher Pickett
+          </a>
+          {' · '}
+          <button className="about-inline-btn" onClick={() => setShowAbout(true)}>
+            About
+          </button>
+        </div>
+
+        {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
       </aside>
 
       <div className="map-stage">
@@ -521,6 +569,19 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           />
+
+          <div className="basemap-switcher">
+            {BASEMAPS.map(bm => (
+              <button
+                key={bm.id}
+                className={`basemap-btn${activeBasemap === bm.id ? ' is-active' : ''}`}
+                onClick={() => switchBasemap(bm.id)}
+                title={bm.label}
+              >
+                {bm.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </section>

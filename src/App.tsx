@@ -1,5 +1,6 @@
 import { lazy, Suspense, useState, useRef, useCallback, useMemo } from 'react'
 import MapWithDropzone from './components/MapWithDropzone'
+import { FeaturePopup } from './components/FeaturePopup'
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
 
@@ -13,6 +14,7 @@ type ActiveTool = 'buffer' | 'simplify' | null
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
   const [currentData, setCurrentData] = useState<FeatureCollection | null>(null)
+  const [previousData, setPreviousData] = useState<FeatureCollection | null>(null)
   const [sourceFileName, setSourceFileName] = useState<string>('feathergeo')
   const [activeTool, setActiveTool] = useState<ActiveTool>(null)
   const [bufferDistance, setBufferDistance] = useState(1)
@@ -32,6 +34,7 @@ export function App() {
   }, [])
 
   const handleDataProcessed = (data: FeatureCollection) => {
+    setPreviousData(currentData)
     setCurrentData(data)
     if (mapRef.current) {
       mapRef.current.updateMap(data)
@@ -42,13 +45,10 @@ export function App() {
     if (!currentData || !currentData.features.length) {
       return { areaSqKm: 0, lengthKm: 0 }
     }
-
     let areaSqKm = 0
     let lengthKm = 0
-
     for (const feature of currentData.features) {
       const geometryType = feature.geometry?.type
-
       if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
         areaSqKm += turf.area(feature) / 1_000_000
         try {
@@ -59,7 +59,6 @@ export function App() {
         }
         continue
       }
-
       if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
         try {
           lengthKm += turf.length(feature as any, { units: 'kilometers' })
@@ -68,9 +67,17 @@ export function App() {
         }
       }
     }
-
     return { areaSqKm, lengthKm }
   }, [currentData])
+
+  const handleUndo = () => {
+    if (!previousData) return
+    setCurrentData(previousData)
+    setPreviousData(null)
+    if (mapRef.current) {
+      mapRef.current.updateMap(previousData)
+    }
+  }
 
   const applyOperation = (operation: string, params?: any) => {
     if (!currentData || !currentData.features.length) {
@@ -165,6 +172,15 @@ export function App() {
 
   const [showExportTray, setShowExportTray] = useState(false)
   const [exportBusy, setExportBusy] = useState<string | null>(null)
+  const [featurePopup, setFeaturePopup] = useState<{ properties: Record<string, unknown>; pixel: [number, number] } | null>(null)
+
+  const handleFeatureClick = useCallback((properties: Record<string, unknown>, pixel: [number, number]) => {
+    if (Object.keys(properties).length === 0) {
+      setFeaturePopup(null)
+    } else {
+      setFeaturePopup({ properties, pixel })
+    }
+  }, [])
 
   const estimateSize = useCallback((data: FeatureCollection | null): string => {
     if (!data) return '0 B'
@@ -244,8 +260,8 @@ export function App() {
           <svg className="app-logo-icon" width="22" height="22" viewBox="0 0 24 24" fill="none">
             <defs>
               <linearGradient id="logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#0d9488" />
-                <stop offset="100%" stopColor="#0284c7" />
+                <stop offset="0%" stopColor="#818cf8" />
+                <stop offset="100%" stopColor="#38bdf8" />
               </linearGradient>
             </defs>
             <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5l6.74-6.76z" stroke="url(#logo-grad)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -254,6 +270,14 @@ export function App() {
           </svg>
           <span className="app-logo-text">Feather<span className="app-logo-accent">Geo</span></span>
         </h1>
+        <span className="app-local-badge">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          100% local
+          <span className="app-local-tooltip">All processing happens in your browser</span>
+        </span>
         <a className="app-github-link" href="https://github.com/cpickett101/FeatherGeo" target="_blank" rel="noopener noreferrer">
           <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
             <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
@@ -265,7 +289,7 @@ export function App() {
             className={`tool-button${activeTool === 'buffer' ? ' is-active' : ''}`}
             onClick={(e) => toggleTool('buffer', e)}
             disabled={!hasData}
-            title="Buffer"
+            data-tooltip="Expand features outward by a set distance"
           >
             <i className="fg fg-buffer" />
             Buffer
@@ -274,7 +298,7 @@ export function App() {
             className={`tool-button${activeTool === 'simplify' ? ' is-active' : ''}`}
             onClick={(e) => toggleTool('simplify', e)}
             disabled={!hasData}
-            title="Simplify"
+            data-tooltip="Reduce vertex count while preserving shape"
           >
             <i className="fg fg-simplify" />
             Simplify
@@ -283,7 +307,7 @@ export function App() {
             className="tool-button"
             onClick={() => applyOperation('centroid')}
             disabled={!hasData}
-            title="Centroid"
+            data-tooltip="Replace each feature with its center point"
           >
             <i className="fg fg-point" />
             Centroid
@@ -292,7 +316,7 @@ export function App() {
             className="tool-button"
             onClick={() => applyOperation('convexHull')}
             disabled={!hasData}
-            title="Convex Hull"
+            data-tooltip="Wrap all features in the smallest convex polygon"
           >
             <i className="fg fg-convex-hull" />
             Hull
@@ -301,27 +325,40 @@ export function App() {
             className="tool-button"
             onClick={() => applyOperation('bbox')}
             disabled={!hasData}
-            title="Bounding Box"
+            data-tooltip="Draw a bounding box around each feature"
           >
             <i className="fg fg-bbox" />
             BBox
           </button>
           <div className="nav-divider"></div>
+          {previousData && (
+            <button
+              className="tool-button"
+              onClick={handleUndo}
+              data-tooltip="Revert to previous state"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 7v6h6" />
+                <path d="M3 13C5.5 6.5 13 4 19 7.5S23 19 17 21" />
+              </svg>
+              Undo
+            </button>
+          )}
+          <div className="nav-divider"></div>
+          <button 
+            className="processor-button"
+            onClick={() => setIsProcessorOpen(true)}
+            data-tooltip="Advanced geo operations"
+          >
+            <i className="fg fg-map-options" />
+          </button>
           <button 
             className={`download-button${showExportTray ? ' is-active' : ''}`}
             onClick={() => setShowExportTray(!showExportTray)}
             disabled={!hasData}
-            title="Export data"
           >
             <i className="fg fg-layer-download" />
             Export
-          </button>
-          <button 
-            className="processor-button"
-            onClick={() => setIsProcessorOpen(true)}
-            title="Advanced Processing"
-          >
-            <i className="fg fg-map-options" />
           </button>
         </div>
       </header>
@@ -427,10 +464,19 @@ export function App() {
         <MapWithDropzone
           ref={mapRef}
           onDataLoaded={handleSourceDataLoaded}
+          onFeatureClick={handleFeatureClick}
           dataset={currentData}
           measures={datasetMeasures}
         />
       </main>
+
+      {featurePopup && (
+        <FeaturePopup
+          properties={featurePopup.properties}
+          pixel={featurePopup.pixel}
+          onClose={() => setFeaturePopup(null)}
+        />
+      )}
 
       {isProcessorOpen && (
         <Suspense fallback={null}>
