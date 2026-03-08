@@ -8,11 +8,16 @@ import VectorSource from 'ol/source/Vector'
 import OSM from 'ol/source/OSM'
 import XYZ from 'ol/source/XYZ'
 import { Fill, Stroke, Style, Circle as CircleStyle } from 'ol/style'
+import { DragBox, DragPan } from 'ol/interaction'
+import { platformModifierKeyOnly } from 'ol/events/condition'
 import type { FeatureLike } from 'ol/Feature'
+import OLFeature from 'ol/Feature'
+import type { Geometry } from 'ol/geom'
 import { fromLonLat } from 'ol/proj'
 import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
+import { formatArea, formatDistance } from '../lib/units'
 
 const BASEMAPS = [
   { id: 'osm', label: 'Streets' },
@@ -58,27 +63,34 @@ function createBasemapLayer(id: BasemapId): TileLayer<OSM | XYZ> {
 interface MapWithDropzoneProps {
   onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
   onFeatureClick?: (properties: Record<string, unknown>, pixel: [number, number]) => void
+  onDeleteSelectedFeature?: () => void
   dataset?: FeatureCollection | null
   measures?: { areaSqKm: number; lengthKm: number }
 }
 
 export interface MapWithDropzoneRef {
   updateMap: (data: FeatureCollection) => void
+  deleteSelectedFeature: () => FeatureCollection | null
+  getSelectedFeatures: () => FeatureLike[]
+  getSelectedIndices: () => number[]
 }
 
 type ImportStatusTone = 'neutral' | 'success' | 'error'
-type MapTool = 'select' | 'delete'
+
 
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, onDeleteSelectedFeature, measures }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
   const basemapLayerRef = useRef<TileLayer<OSM | XYZ> | null>(null)
   const vectorLayerRef = useRef<VectorLayer<VectorSource> | null>(null)
   const selectedFeatureRef = useRef<FeatureLike | null>(null)
+  const selectedFeaturesRef = useRef<Set<FeatureLike>>(new Set())
+  const dragBoxRef = useRef<DragBox | null>(null)
+  const dragPanRef = useRef<DragPan | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
   const [isProcessing, setIsProcessing] = useState(false)
@@ -88,11 +100,13 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [featureCount, setFeatureCount] = useState(0)
   const [geometrySummary, setGeometrySummary] = useState<string>('No data loaded')
   const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
-  const [activeTool, setActiveTool] = useState<MapTool>('select')
   const [currentGeoJSON, setCurrentGeoJSON] = useState<FeatureCollection | null>(null)
 
+  const onFeatureClickRef = useRef(onFeatureClick)
+  useEffect(() => { onFeatureClickRef.current = onFeatureClick }, [onFeatureClick])
+
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current) return
 
     const basemapLayer = createBasemapLayer('osm')
     basemapLayerRef.current = basemapLayer
@@ -108,65 +122,59 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
     mapInstance.current = map
 
-    // Click handler for feature inspection
-    map.on('click', (evt) => {
-      const feature = map.forEachFeatureAtPixel(evt.pixel, (f) => f)
-      if (feature) {
-        if (activeTool === 'delete') {
-          // Delete the feature
-          const source = vectorLayerRef.current?.getSource()
-          if (source) {
-            source.removeFeature(feature as any)
-            
-            // Update the current GeoJSON data
-            if (currentGeoJSON) {
-              const format = new GeoJSON()
-              const remainingFeatures = source.getFeatures()
-              const updatedGeoJSON: FeatureCollection = {
-                type: 'FeatureCollection',
-                features: remainingFeatures.map(f => 
-                  format.writeFeatureObject(f, {
-                    dataProjection: 'EPSG:4326',
-                    featureProjection: 'EPSG:3857',
-                  })
-                )
-              }
-              setCurrentGeoJSON(updatedGeoJSON)
-              setFeatureCount(updatedGeoJSON.features.length)
-              setGeometrySummary(summarizeGeometry(updatedGeoJSON.features))
-              setStatus(`Deleted feature. ${updatedGeoJSON.features.length} feature${updatedGeoJSON.features.length === 1 ? '' : 's'} remaining.`)
-              setStatusTone('success')
-              onDataLoaded?.(updatedGeoJSON)
-            }
-            
-            selectedFeatureRef.current = null
-            onFeatureClick?.({} as Record<string, unknown>, [0, 0])
-          }
-        } else {
-          // Select mode - highlight and show properties
-          selectedFeatureRef.current = feature
-          vectorLayerRef.current?.changed()
-          const props = (feature.getProperties?.() ?? {}) as Record<string, unknown>
-          const { geometry: _g, ...displayProps } = props
-          const nativeEvt = evt.originalEvent as MouseEvent
-          onFeatureClick?.(displayProps, [nativeEvt.clientX, nativeEvt.clientY])
-        }
-      } else {
-        selectedFeatureRef.current = null
-        vectorLayerRef.current?.changed()
-        onFeatureClick?.({} as Record<string, unknown>, [0, 0])
+    // Store reference to the default DragPan interaction
+    map.getInteractions().forEach((interaction) => {
+      if (interaction instanceof DragPan) {
+        dragPanRef.current = interaction
       }
     })
 
-    // Pointer cursor on hover
+    // Click handler for feature inspection
+    map.on('click', (evt) => {
+      if (!selectModeRef.current && !multiSelectModeRef.current) return
+      const feature = map.forEachFeatureAtPixel(evt.pixel, (f) => f, { hitTolerance: 4 })
+      if (feature) {
+        if (multiSelectModeRef.current) {
+          // Toggle feature in/out of multi-selection set
+          if (selectedFeaturesRef.current.has(feature)) {
+            selectedFeaturesRef.current.delete(feature)
+            selectedFeatureRef.current = null
+          } else {
+            selectedFeaturesRef.current.add(feature)
+            selectedFeatureRef.current = feature
+          }
+        } else {
+          selectedFeaturesRef.current.clear()
+          selectedFeaturesRef.current.add(feature)
+          selectedFeatureRef.current = feature
+        }
+        vectorLayerRef.current?.changed()
+        if (!multiSelectModeRef.current) {
+          const props = (feature.getProperties?.() ?? {}) as Record<string, unknown>
+          const { geometry: _g, ...displayProps } = props
+          const nativeEvt = evt.originalEvent as MouseEvent
+          onFeatureClickRef.current?.(displayProps, [nativeEvt.clientX, nativeEvt.clientY])
+        }
+      } else {
+        selectedFeatureRef.current = null
+        selectedFeaturesRef.current.clear()
+        vectorLayerRef.current?.changed()
+        if (!multiSelectModeRef.current) {
+          onFeatureClickRef.current?.({} as Record<string, unknown>, [0, 0])
+        }
+      }
+    })
+
+    // Pointer cursor on hover (only in select mode)
     map.on('pointermove', (evt) => {
+      if (!selectModeRef.current && !multiSelectModeRef.current) {
+        const target = map.getTargetElement() as HTMLElement
+        target.style.cursor = ''
+        return
+      }
       const hit = map.hasFeatureAtPixel(evt.pixel)
       const target = map.getTargetElement() as HTMLElement
-      if (activeTool === 'delete') {
-        target.style.cursor = hit ? 'crosshair' : ''
-      } else {
-        target.style.cursor = hit ? 'pointer' : ''
-      }
+      target.style.cursor = hit ? 'pointer' : ''
     })
 
     return () => {
@@ -175,6 +183,69 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       }
     }
   }, [])
+
+  const toggleSelectMode = useCallback(() => {
+    const next = !selectModeRef.current
+    selectModeRef.current = next
+    setSelectMode(next)
+    // Turn off multi-select and restore pan
+    multiSelectModeRef.current = false
+    setMultiSelectMode(false)
+    dragPanRef.current?.setActive(true)
+    if (dragBoxRef.current) {
+      mapInstance.current?.removeInteraction(dragBoxRef.current)
+      dragBoxRef.current = null
+    }
+    if (!next) {
+      selectedFeatureRef.current = null
+      selectedFeaturesRef.current.clear()
+      vectorLayerRef.current?.changed()
+      onFeatureClick?.({} as Record<string, unknown>, [0, 0])
+    }
+  }, [onFeatureClick])
+
+  const toggleMultiSelectMode = useCallback(() => {
+    const next = !multiSelectModeRef.current
+    multiSelectModeRef.current = next
+    setMultiSelectMode(next)
+    const map = mapInstance.current
+    if (next) {
+      // Turn off single select
+      selectModeRef.current = false
+      setSelectMode(false)
+      // Disable pan
+      dragPanRef.current?.setActive(false)
+      // Add drag-box interaction
+      const dragBox = new DragBox({ condition: () => true })
+      dragBox.on('boxend', () => {
+        const extent = dragBox.getGeometry().getExtent()
+        const source = vectorLayerRef.current?.getSource()
+        if (!source) return
+        source.forEachFeatureIntersectingExtent(extent, (feature) => {
+          selectedFeaturesRef.current.add(feature)
+          selectedFeatureRef.current = feature
+        })
+        vectorLayerRef.current?.changed()
+        // Don't show attribute popup in multi-select mode
+        // onFeatureClickRef.current is intentionally not called here
+      })
+      map?.addInteraction(dragBox)
+      dragBoxRef.current = dragBox
+    } else {
+      // Re-enable pan
+      dragPanRef.current?.setActive(true)
+      // Remove drag-box
+      if (dragBoxRef.current) {
+        map?.removeInteraction(dragBoxRef.current)
+        dragBoxRef.current = null
+      }
+      // Clear multi-selection, keep only last selected
+      const last = selectedFeatureRef.current
+      selectedFeaturesRef.current.clear()
+      if (last) selectedFeaturesRef.current.add(last)
+      vectorLayerRef.current?.changed()
+    }
+  }, [onFeatureClick])
 
   const switchBasemap = useCallback((id: BasemapId) => {
     const map = mapInstance.current
@@ -240,17 +311,22 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       map.removeLayer(vectorLayerRef.current)
     }
 
-    const vectorSource = new VectorSource({
-      features: new GeoJSON().readFeatures(geojson, {
+    const format = new GeoJSON()
+    const olFeatures = geojson.features.map((f, i) => {
+      const olFeature = format.readFeature(f, {
         dataProjection: 'EPSG:4326',
         featureProjection: 'EPSG:3857',
-      }),
+      }) as OLFeature<Geometry>
+      olFeature.set('_idx', i)
+      return olFeature
     })
+
+    const vectorSource = new VectorSource<OLFeature<Geometry>>({ features: olFeatures })
 
     const newVectorLayer = new VectorLayer({
       source: vectorSource,
       style: (feature) => {
-        const isSelected = selectedFeatureRef.current === feature
+        const isSelected = selectedFeaturesRef.current.has(feature)
         const type = feature.getGeometry()?.getType()
         if (type === 'Point' || type === 'MultiPoint') {
           return new Style({
@@ -456,6 +532,10 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
   const [showDetails, setShowDetails] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
+  const [selectMode, setSelectMode] = useState(true)
+  const selectModeRef = useRef(true)
+  const [multiSelectMode, setMultiSelectMode] = useState(false)
+  const multiSelectModeRef = useRef(false)
 
   // Expose updateMap method to parent via ref
   useImperativeHandle(ref, () => ({
@@ -465,6 +545,50 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       setGeometrySummary(summarizeGeometry(data.features))
       setStatus(`Processed: ${data.features.length} feature${data.features.length === 1 ? '' : 's'} on the map.`)
       setStatusTone('success')
+    },
+    getSelectedFeatures: () => {
+      return Array.from(selectedFeaturesRef.current)
+    },
+    getSelectedIndices: () => {
+      return Array.from(selectedFeaturesRef.current)
+        .map(f => (f as any).get?.('_idx') as number)
+        .filter(i => i !== undefined)
+    },
+    deleteSelectedFeature: () => {
+      const feature = selectedFeatureRef.current
+      const source = vectorLayerRef.current?.getSource()
+      if (!source) return null
+
+      const toDelete = selectedFeaturesRef.current.size > 0
+        ? Array.from(selectedFeaturesRef.current)
+        : feature ? [feature] : []
+
+      if (toDelete.length === 0) return null
+
+      for (const f of toDelete) {
+        source.removeFeature(f as any)
+      }
+      selectedFeatureRef.current = null
+      selectedFeaturesRef.current.clear()
+
+      const format = new GeoJSON()
+      const remainingFeatures = source.getFeatures()
+      const updatedGeoJSON: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: remainingFeatures.map(f =>
+          format.writeFeatureObject(f, {
+            dataProjection: 'EPSG:4326',
+            featureProjection: 'EPSG:3857',
+          })
+        )
+      }
+      setCurrentGeoJSON(updatedGeoJSON)
+      setFeatureCount(updatedGeoJSON.features.length)
+      setGeometrySummary(summarizeGeometry(updatedGeoJSON.features))
+      setStatus(`Deleted feature. ${updatedGeoJSON.features.length} feature${updatedGeoJSON.features.length === 1 ? '' : 's'} remaining.`)
+      setStatusTone('success')
+      onFeatureClick?.({} as Record<string, unknown>, [0, 0])
+      return updatedGeoJSON
     }
   }), [displayGeoJSON])
 
@@ -511,6 +635,18 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             <span className="stat-label">Geometry</span>
             <strong>{geometrySummary}</strong>
           </div>
+          {measures && measures.areaSqKm > 0 && (
+            <div className="stat-card">
+              <span className="stat-label">Total Area</span>
+              <strong>{formatArea(measures.areaSqKm)}</strong>
+            </div>
+          )}
+          {measures && measures.lengthKm > 0 && (
+            <div className="stat-card">
+              <span className="stat-label">Total Length</span>
+              <strong>{formatDistance(measures.lengthKm)}</strong>
+            </div>
+          )}
         </div>
 
         {loadedFiles.length > 0 && (
@@ -627,25 +763,20 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           {featureCount > 0 && (
             <div className="map-toolbar">
               <button
-                className={`tool-btn${activeTool === 'select' ? ' is-active' : ''}`}
-                onClick={() => setActiveTool('select')}
-                title="Select features"
+                className={`tool-btn${selectMode ? ' is-active' : ''}`}
+                title={selectMode ? 'Deactivate select' : 'Select features'}
+                onClick={toggleSelectMode}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
                 </svg>
               </button>
               <button
-                className={`tool-btn${activeTool === 'delete' ? ' is-active' : ''}`}
-                onClick={() => setActiveTool('delete')}
-                title="Delete features"
+                className={`tool-btn${multiSelectMode ? ' is-active' : ''}`}
+                title={multiSelectMode ? 'Deactivate multi-select' : 'Multi-select features'}
+                onClick={toggleMultiSelectMode}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="3 6 5 6 21 6" />
-                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                  <line x1="10" y1="11" x2="10" y2="17" />
-                  <line x1="14" y1="11" x2="14" y2="17" />
-                </svg>
+                <i className="fg fg-select-extent" style={{ fontSize: 20 }} />
               </button>
             </div>
           )}

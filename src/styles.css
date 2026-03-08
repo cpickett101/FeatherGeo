@@ -1350,6 +1350,28 @@ a { color: inherit; }
   flex-shrink: 0;
 }
 
+.feature-popup-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.feature-popup-delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--c-text-muted);
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background var(--transition), color var(--transition);
+}
+.feature-popup-delete:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: #ef4444;
+}
+
 .feature-popup-title {
   font-size: 0.75rem;
   font-weight: 600;

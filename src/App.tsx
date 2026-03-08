@@ -1,8 +1,10 @@
 import { lazy, Suspense, useState, useRef, useCallback, useMemo } from 'react'
-import MapWithDropzone from './components/MapWithDropzone'
+import MapWithDropzone, { type MapWithDropzoneRef } from './components/MapWithDropzone'
 import { FeaturePopup } from './components/FeaturePopup'
 import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
+import { storage, UnitSystem } from './lib/storage'
+import { getDistanceUnit, convertDistanceToKm } from './lib/units'
 
 // Lazy load GDAL only when needed
 const GeoProcessor = lazy(() =>
@@ -13,6 +15,7 @@ type ActiveTool = 'buffer' | 'simplify' | null
 
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
+  const [showSettingsTray, setShowSettingsTray] = useState(false)
   const [currentData, setCurrentData] = useState<FeatureCollection | null>(null)
   const [previousData, setPreviousData] = useState<FeatureCollection | null>(null)
   const [sourceFileName, setSourceFileName] = useState<string>('feathergeo')
@@ -20,7 +23,8 @@ export function App() {
   const [bufferDistance, setBufferDistance] = useState(1)
   const [simplifyTolerance, setSimplifyTolerance] = useState(0.01)
   const [toolPanelPosition, setToolPanelPosition] = useState({ left: 0, top: 0 })
-  const mapRef = useRef<{ updateMap: (data: FeatureCollection) => void }>(null)
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(storage.getSettings().unitSystem)
+  const mapRef = useRef<MapWithDropzoneRef>(null)
 
   const handleSourceDataLoaded = useCallback((data: FeatureCollection, fileName?: string) => {
     setCurrentData(data)
@@ -80,73 +84,63 @@ export function App() {
   }
 
   const applyOperation = (operation: string, params?: any) => {
-    if (!currentData || !currentData.features.length) {
-      return
-    }
+    if (!currentData || !currentData.features.length) return
 
     try {
-      let result: FeatureCollection
+      // Check if there's a selection — scope op to those features only
+      const selectedIndices = mapRef.current?.getSelectedIndices() ?? []
+      const hasSelection = selectedIndices.length > 0
+      const targetFeatures = hasSelection
+        ? currentData.features.filter((_, i) => selectedIndices.includes(i))
+        : currentData.features
+
+      let processedFeatures: typeof currentData.features
 
       switch (operation) {
         case 'buffer': {
           const distance = params?.distance ?? bufferDistance
-          const buffered = currentData.features.map(feature => {
-            try {
-              return turf.buffer(feature, distance, { units: 'kilometers' })
-            } catch (e) {
-              return null
-            }
+          const distanceKm = convertDistanceToKm(distance)
+          processedFeatures = targetFeatures.map(feature => {
+            try { return turf.buffer(feature, distanceKm, { units: 'kilometers' }) } catch { return null }
           }).filter((f): f is Feature<Polygon | MultiPolygon> => f !== null)
-          result = turf.featureCollection(buffered)
           break
         }
-
         case 'simplify': {
           const tolerance = params?.tolerance ?? simplifyTolerance
-          const simplified = currentData.features.map(feature => {
-            try {
-              return turf.simplify(feature, { tolerance, highQuality: false })
-            } catch (e) {
-              return feature
-            }
+          processedFeatures = targetFeatures.map(feature => {
+            try { return turf.simplify(feature, { tolerance, highQuality: false }) } catch { return feature }
           })
-          result = turf.featureCollection(simplified)
           break
         }
-
         case 'centroid': {
-          const centroids = currentData.features.map(feature => {
-            try {
-              return turf.centroid(feature)
-            } catch (e) {
-              return null
-            }
+          processedFeatures = targetFeatures.map(feature => {
+            try { return turf.centroid(feature) } catch { return null }
           }).filter((f): f is NonNullable<typeof f> => f !== null)
-          result = turf.featureCollection(centroids)
           break
         }
-
         case 'convexHull': {
-          const hull = turf.convex(currentData)
-          result = hull ? turf.featureCollection([hull]) : currentData
+          const col = turf.featureCollection(targetFeatures)
+          const hull = turf.convex(col)
+          processedFeatures = hull ? [hull] : targetFeatures
           break
         }
-
         case 'bbox': {
-          const boxes = currentData.features.map(feature => {
-            try {
-              const bbox = turf.bbox(feature)
-              return turf.bboxPolygon(bbox)
-            } catch (e) {
-              return null
-            }
+          processedFeatures = targetFeatures.map(feature => {
+            try { return turf.bboxPolygon(turf.bbox(feature)) } catch { return null }
           }).filter((f): f is NonNullable<typeof f> => f !== null)
-          result = turf.featureCollection(boxes)
           break
         }
-
         default:
           return
+      }
+
+      let result: FeatureCollection
+      if (hasSelection) {
+        // Merge: replace selected features with processed ones, keep the rest
+        const unselected = currentData.features.filter((_, i) => !selectedIndices.includes(i))
+        result = turf.featureCollection([...unselected, ...processedFeatures])
+      } else {
+        result = turf.featureCollection(processedFeatures)
       }
 
       handleDataProcessed(result)
@@ -181,6 +175,15 @@ export function App() {
       setFeaturePopup({ properties, pixel })
     }
   }, [])
+
+  const handleDeleteFeature = useCallback(() => {
+    const updated = mapRef.current?.deleteSelectedFeature()
+    if (updated) {
+      setPreviousData(currentData)
+      setCurrentData(updated)
+    }
+    setFeaturePopup(null)
+  }, [currentData])
 
   const estimateSize = useCallback((data: FeatureCollection | null): string => {
     if (!data) return '0 B'
@@ -270,20 +273,33 @@ export function App() {
           </svg>
           <span className="app-logo-text">Feather<span className="app-logo-accent">Geo</span></span>
         </h1>
-        <span className="app-local-badge">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-          </svg>
-          100% local
-          <span className="app-local-tooltip">All processing happens in your browser</span>
-        </span>
-        <a className="app-github-link" href="https://github.com/cpickett101/FeatherGeo" target="_blank" rel="noopener noreferrer">
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
-          </svg>
-          Open Source
-        </a>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <span className="app-local-badge">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            100% local
+            <span className="app-local-tooltip">All processing happens in your browser</span>
+          </span>
+          <a className="app-github-link" href="https://github.com/cpickett101/FeatherGeo/issues" target="_blank" rel="noopener noreferrer">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M8 2v4"/>
+              <path d="M16 2v4"/>
+              <rect x="6" y="6" width="12" height="12" rx="2"/>
+              <path d="M6 10h12"/>
+              <circle cx="9" cy="13" r="1"/>
+              <circle cx="15" cy="13" r="1"/>
+            </svg>
+            Report Issue
+          </a>
+          <a className="app-github-link" href="https://github.com/cpickett101/FeatherGeo" target="_blank" rel="noopener noreferrer">
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/>
+            </svg>
+            Open Source
+          </a>
+        </div>
         <div className="app-nav">
           <button 
             className={`tool-button${activeTool === 'buffer' ? ' is-active' : ''}`}
@@ -346,9 +362,9 @@ export function App() {
           )}
           <div className="nav-divider"></div>
           <button 
-            className="processor-button"
-            onClick={() => setIsProcessorOpen(true)}
-            data-tooltip="Advanced geo operations"
+            className={`processor-button${showSettingsTray ? ' is-active' : ''}`}
+            onClick={() => setShowSettingsTray(!showSettingsTray)}
+            data-tooltip="Settings"
           >
             <i className="fg fg-map-options" />
           </button>
@@ -362,6 +378,34 @@ export function App() {
           </button>
         </div>
       </header>
+
+      {showSettingsTray && (
+        <div className="export-tray">
+          <div className="export-tray-inner">
+            <div className="export-card" style={{ cursor: 'default', padding: '16px' }}>
+              <span className="export-card-info" style={{ width: '100%' }}>
+                <span className="export-card-format">Measurement Units</span>
+                <select 
+                  className="processor-select"
+                  value={unitSystem}
+                  onChange={(e) => {
+                    const newSystem = e.target.value as UnitSystem
+                    setUnitSystem(newSystem)
+                    storage.setSettings({ unitSystem: newSystem })
+                  }}
+                  style={{ marginTop: '8px', width: '100%' }}
+                >
+                  <option value="metric">Metric (meters, kilometers)</option>
+                  <option value="imperial">Imperial (feet, miles)</option>
+                </select>
+              </span>
+            </div>
+          </div>
+          <button className="export-tray-dismiss" onClick={() => setShowSettingsTray(false)}>
+            Close
+          </button>
+        </div>
+      )}
 
       {showExportTray && hasData && (
         <div className="export-tray">
@@ -403,7 +447,7 @@ export function App() {
             {activeTool === 'buffer' && (
               <div className="tool-panel-content">
                 <label className="tool-panel-label">
-                  Distance (km)
+                  Distance ({getDistanceUnit()})
                   <input
                     type="number"
                     className="tool-panel-input"
@@ -475,6 +519,7 @@ export function App() {
           properties={featurePopup.properties}
           pixel={featurePopup.pixel}
           onClose={() => setFeaturePopup(null)}
+          onDelete={handleDeleteFeature}
         />
       )}
 

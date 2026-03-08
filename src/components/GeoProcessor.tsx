@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { Feature, FeatureCollection, Polygon, MultiPolygon, GeoJsonProperties } from 'geojson'
 import * as turf from '@turf/turf'
+import { getDistanceUnit, convertDistanceToKm } from '../lib/units'
 
 function isPolygonFeature(
   feature: Feature<Polygon | MultiPolygon, GeoJsonProperties> | null | undefined
@@ -49,9 +50,10 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
 
       switch (operation) {
         case 'buffer': {
+          const distanceKm = convertDistanceToKm(bufferDistance)
           const buffered = currentData.features.map(feature => {
             try {
-              return turf.buffer(feature, bufferDistance, { units: 'kilometers' })
+              return turf.buffer(feature, distanceKm, { units: 'kilometers' })
             } catch (e) {
               return null
             }
@@ -163,7 +165,7 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
               {operation === 'buffer' && (
                 <div className="processor-section">
                   <label className="processor-label">
-                    Buffer Distance (km)
+                    Buffer Distance ({getDistanceUnit()})
                     <input
                       type="number"
                       className="processor-input"

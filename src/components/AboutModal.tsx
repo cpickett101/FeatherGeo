@@ -1,11 +1,20 @@
-import React from 'react'
+import React, { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 interface AboutModalProps {
   onClose: () => void
 }
 
 export function AboutModal({ onClose }: AboutModalProps) {
-  return (
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [onClose])
+
+  return createPortal(
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-box" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="about-title">
         <button className="modal-close" onClick={onClose} aria-label="Close">
@@ -36,7 +45,8 @@ export function AboutModal({ onClose }: AboutModalProps) {
           <h3>About the project</h3>
           <p>
             FeatherGeo was built to make basic GIS work accessible without the overhead of desktop software.
-            <p></p>
+          </p>
+          <p>
             Drop in a layer, inspect your features, run spatial operations like buffer, simplify, or convex hull,
             and export the result, all without your data ever leaving the browser.
           </p>
@@ -45,7 +55,8 @@ export function AboutModal({ onClose }: AboutModalProps) {
           <p>
             I'm <a href="https://github.com/cpickett101" target="_blank" rel="noopener noreferrer">Christopher Pickett</a>, a
             GIS professional with a decade of experience in desktop spatial analysis, and geospatial web mapping.
-            <p></p>
+          </p>
+          <p>
             I built FeatherGeo because I kept running into situations where I needed a quick way to preview or
             process a shapefile without spinning up QGIS.
           </p>
@@ -61,9 +72,18 @@ export function AboutModal({ onClose }: AboutModalProps) {
             </svg>
             View on GitHub
           </a>
+          <a className="about-link" href="https://github.com/cpickett101/FeatherGeo/pulls" target="_blank" rel="noopener noreferrer">
+            <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
+              <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0z"/>
+              <path d="M8 4.5a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-1 0V5a.5.5 0 0 1 .5-.5z"/>
+            </svg>
+            Feature Request
+          </a>
           <span className="about-badge">Open Source · MIT</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
