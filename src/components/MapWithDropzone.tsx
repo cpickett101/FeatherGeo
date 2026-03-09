@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { AboutModal } from './AboutModal'
 import { Map as OLMap, View } from 'ol'
+import { ScaleLine } from 'ol/control'
 import { GeoJSON } from 'ol/format'
 import VectorLayer from 'ol/layer/Vector'
 import TileLayer from 'ol/layer/Tile'
@@ -12,7 +13,7 @@ import { DragBox, DragPan } from 'ol/interaction'
 import type { FeatureLike } from 'ol/Feature'
 import OLFeature from 'ol/Feature'
 import type { Geometry } from 'ol/geom'
-import { fromLonLat } from 'ol/proj'
+import { fromLonLat, toLonLat } from 'ol/proj'
 import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
@@ -108,6 +109,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
   const [isMobile, setIsMobile] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
+  const [cursorCoords, setCursorCoords] = useState<string>('')
 
   const onFeatureClickRef = useRef(onFeatureClick)
   useEffect(() => { onFeatureClickRef.current = onFeatureClick }, [onFeatureClick])
@@ -162,6 +164,13 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       }),
     });
 
+    map.addControl(new ScaleLine({
+      units: 'metric',
+      bar: true,
+      steps: 2,
+      minWidth: 100,
+    }))
+
     mapInstance.current = map
 
     // Store reference to the default DragPan interaction
@@ -209,6 +218,10 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
     // Pointer cursor on hover (only in select mode)
     map.on('pointermove', (evt) => {
+      if (!evt.dragging) {
+        const [lon, lat] = toLonLat(evt.coordinate)
+        setCursorCoords(`${lat.toFixed(5)}, ${lon.toFixed(5)}`)
+      }
       if (!selectModeRef.current && !multiSelectModeRef.current) {
         const target = map.getTargetElement() as HTMLElement
         target.style.cursor = ''
@@ -843,6 +856,12 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           />
+
+          {cursorCoords && (
+            <div className="map-coordinates">
+              Lat, Lon: {cursorCoords}
+            </div>
+          )}
 
           <div className="basemap-switcher">
             {BASEMAPS.map(bm => (

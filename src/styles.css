@@ -1154,6 +1154,37 @@ a { color: inherit; }
   box-shadow: var(--shadow-md);
 }
 
+.map-coordinates {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 10;
+  background: rgba(15, 23, 48, 0.72);
+  color: rgba(255,255,255,0.9);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid rgba(255,255,255,0.12);
+  backdrop-filter: blur(8px);
+}
+
+.ol-scale-line {
+  bottom: 44px;
+  left: 12px;
+  background: rgba(15, 23, 48, 0.72);
+  border: 1px solid rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.9);
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  backdrop-filter: blur(8px);
+}
+
+.ol-scale-line-inner {
+  color: rgba(255,255,255,0.9);
+  border-color: rgba(255,255,255,0.7);
+}
+
 .drop-zone-overlay {
   position: absolute;
   inset: 0;
@@ -1420,6 +1451,16 @@ a { color: inherit; }
   .tool-btn {
     width: 40px;
     height: 40px;
+  }
+
+  .map-coordinates {
+    bottom: 56px;
+    left: 10px;
+  }
+
+  .ol-scale-line {
+    bottom: 20px;
+    left: 10px;
   }
 }
 
