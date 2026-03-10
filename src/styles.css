@@ -1072,7 +1072,7 @@ a { color: inherit; }
 
 .map-toolbar {
   position: absolute;
-  top: 12px;
+  top: 56px;
   left: 12px;
   z-index: 10;
   display: flex;
@@ -1156,7 +1156,7 @@ a { color: inherit; }
 
 .map-coordinates {
   position: absolute;
-  bottom: 12px;
+  bottom: 44px;
   left: 12px;
   z-index: 10;
   background: rgba(15, 23, 48, 0.72);
@@ -1170,7 +1170,7 @@ a { color: inherit; }
 }
 
 .ol-scale-line {
-  bottom: 44px;
+  bottom: 12px;
   left: 12px;
   background: rgba(15, 23, 48, 0.72);
   border: 1px solid rgba(255,255,255,0.12);
@@ -1444,7 +1444,7 @@ a { color: inherit; }
   }
 
   .map-toolbar {
-    top: 10px;
+    top: 56px;
     left: 10px;
   }
 
