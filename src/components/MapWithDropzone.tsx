@@ -65,6 +65,7 @@ function createBasemapLayer(id: BasemapId): TileLayer<OSM | XYZ> {
 interface MapWithDropzoneProps {
   onDataLoaded?: (data: FeatureCollection, fileName?: string) => void
   onFeatureClick?: (properties: Record<string, unknown>, pixel: [number, number]) => void
+  onClear?: () => void
   dataset?: FeatureCollection | null
   measures?: { areaSqKm: number; lengthKm: number }
 }
@@ -88,7 +89,7 @@ type ImportStatusTone = 'neutral' | 'success' | 'error'
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, onClear, dataset, measures }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -623,7 +624,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     setStatus('Map cleared. Select or drop a shapefile or GeoJSON file to load another dataset.')
     setStatusTone('neutral')
     setPanelCollapsed(false)
-  }, [])
+    onClear?.()
+  }, [onClear])
 
   const [showDetails, setShowDetails] = useState(false)
   const [showAbout, setShowAbout] = useState(false)

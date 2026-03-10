@@ -56,6 +56,13 @@ export function App() {
     }
   }, [])
 
+  const handleClearData = useCallback(() => {
+    setCurrentData(null)
+    setPreviousData(null)
+    setSourceFileName('feathergeo')
+    storage.clearLastSession()
+  }, [])
+
   const handleDataProcessed = (data: FeatureCollection) => {
     setPreviousData(currentData)
     setCurrentData(data)
@@ -537,6 +544,7 @@ export function App() {
           ref={mapRef}
           onDataLoaded={handleSourceDataLoaded}
           onFeatureClick={handleFeatureClick}
+          onClear={handleClearData}
           dataset={currentData}
           measures={datasetMeasures}
         />
