@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react'
 import { AboutModal } from './AboutModal'
 import { Map as OLMap, View } from 'ol'
+import { ScaleLine } from 'ol/control'
 import { GeoJSON } from 'ol/format'
 import VectorLayer from 'ol/layer/Vector'
 import TileLayer from 'ol/layer/Tile'
@@ -12,7 +13,7 @@ import { DragBox, DragPan } from 'ol/interaction'
 import type { FeatureLike } from 'ol/Feature'
 import OLFeature from 'ol/Feature'
 import type { Geometry } from 'ol/geom'
-import { fromLonLat } from 'ol/proj'
+import { fromLonLat, toLonLat } from 'ol/proj'
 import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
@@ -106,9 +107,30 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [featureCount, setFeatureCount] = useState(0)
   const [geometrySummary, setGeometrySummary] = useState<string>('No data loaded')
   const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
+  const [isMobile, setIsMobile] = useState(false)
+  const [panelCollapsed, setPanelCollapsed] = useState(false)
+  const [cursorCoords, setCursorCoords] = useState<string>('')
 
   const onFeatureClickRef = useRef(onFeatureClick)
   useEffect(() => { onFeatureClickRef.current = onFeatureClick }, [onFeatureClick])
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 860px)')
+    const update = () => setIsMobile(media.matches)
+    update()
+    if (media.addEventListener) {
+      media.addEventListener('change', update)
+    } else {
+      media.addListener(update)
+    }
+    return () => {
+      if (media.removeEventListener) {
+        media.removeEventListener('change', update)
+      } else {
+        media.removeListener(update)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -141,6 +163,13 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         zoom: 2
       }),
     });
+
+    map.addControl(new ScaleLine({
+      units: 'metric',
+      bar: true,
+      steps: 2,
+      minWidth: 100,
+    }))
 
     mapInstance.current = map
 
@@ -189,6 +218,10 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
     // Pointer cursor on hover (only in select mode)
     map.on('pointermove', (evt) => {
+      if (!evt.dragging) {
+        const [lon, lat] = toLonLat(evt.coordinate)
+        setCursorCoords(`${lat.toFixed(5)}, ${lon.toFixed(5)}`)
+      }
       if (!selectModeRef.current && !multiSelectModeRef.current) {
         const target = map.getTargetElement() as HTMLElement
         target.style.cursor = ''
@@ -216,9 +249,18 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       setGeometrySummary(summarizeGeometry(dataset.features))
       setStatus(`Restored ${dataset.features.length} feature${dataset.features.length === 1 ? '' : 's'} from last session.`)
       setStatusTone('success')
+      if (isMobile) {
+        setPanelCollapsed(true)
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // intentionally run once on mount only
+
+  useEffect(() => {
+    if (isMobile && featureCount > 0) {
+      setPanelCollapsed(true)
+    }
+  }, [isMobile, featureCount])
 
   const toggleSelectMode = useCallback(() => {
     const next = !selectModeRef.current
@@ -427,6 +469,9 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         setGeometrySummary(summarizeGeometry(parsed.features))
         setStatus(`Loaded ${parsed.features.length} feature${parsed.features.length === 1 ? '' : 's'} on the map.`)
         setStatusTone('success')
+        if (isMobile) {
+          setPanelCollapsed(true)
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unknown error'
         setFeatureCount(0)
@@ -528,6 +573,9 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         setGeometrySummary(summarizeGeometry(result.features))
         setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
         setStatusTone('success')
+        if (isMobile) {
+          setPanelCollapsed(true)
+        }
       } else {
         setFeatureCount(0)
         setGeometrySummary('No geometry')
@@ -543,7 +591,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     } finally {
       setIsProcessing(false)
     }
-  }, [displayGeoJSON, onDataLoaded])
+  }, [displayGeoJSON, onDataLoaded, isMobile])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
@@ -574,6 +622,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     setGeometrySummary('No data loaded')
     setStatus('Map cleared. Select or drop a shapefile or GeoJSON file to load another dataset.')
     setStatusTone('neutral')
+    setPanelCollapsed(false)
   }, [])
 
   const [showDetails, setShowDetails] = useState(false)
@@ -644,7 +693,18 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
   return (
     <section className="map-workspace">
-      <aside className="panel import-panel">
+      <aside className={`panel import-panel${panelCollapsed && isMobile ? ' is-collapsed' : ''}`}>
+        <div className="panel-mobile-handle">
+          <button
+            type="button"
+            className="mobile-sheet-toggle"
+            onClick={() => setPanelCollapsed(!panelCollapsed)}
+            aria-expanded={!panelCollapsed}
+          >
+            <span className="mobile-sheet-grip" aria-hidden="true" />
+            <span>{panelCollapsed ? 'Show tools' : 'Hide tools'}</span>
+          </button>
+        </div>
         <div className="panel-section">
           <p className="panel-kicker">Import</p>
           <h2>Shapefile / GeoJSON</h2>
@@ -796,6 +856,12 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           />
+
+          {cursorCoords && (
+            <div className="map-coordinates">
+              Lat, Lon: {cursorCoords}
+            </div>
+          )}
 
           <div className="basemap-switcher">
             {BASEMAPS.map(bm => (
