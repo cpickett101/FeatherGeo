@@ -777,7 +777,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
               </button>
             )}
           </div>
-          <h2>Shapefile / GeoJSON</h2>
+          <h2>Shapefile / GeoJSON / KMZ</h2>
         </div>
 
         <div

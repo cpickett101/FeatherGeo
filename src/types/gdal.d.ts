@@ -6,7 +6,7 @@ declare module 'gdal3.js' {
     width?: number
     height?: number
     bands?: GDALBand[]
-    info?: any
+    info?: unknown
     getFileList?(): string[]
   }
 
@@ -16,14 +16,14 @@ declare module 'gdal3.js' {
   }
 
   export interface GDALApi {
-    open(files: File | FileList | string | string[], options?: string[], openOptions?: string[]): Promise<{ datasets: GDALDataset[]; errors: any[] }>
+    open(files: File | FileList | string | string[], options?: string[], openOptions?: string[]): Promise<{ datasets: GDALDataset[]; errors: unknown[] }>
     close(dataset: GDALDataset): Promise<void>
-    getInfo(dataset: GDALDataset): Promise<any>
-    gdalwarp(dataset: GDALDataset, args?: string[], dest?: string | null): Promise<{ local: string; real: string; all: any[] }>
-    gdal_translate(dataset: GDALDataset, args?: string[], dest?: string | null): Promise<{ local: string; real: string; all: any[] }>
-    ogr2ogr(dataset: GDALDataset, args?: string[], dest?: string | null): Promise<{ local: string; real: string; all: any[] }>
+    getInfo(dataset: GDALDataset): Promise<unknown>
+    gdalwarp(dataset: GDALDataset, args?: string[], dest?: string | null): Promise<{ local: string; real: string; all: unknown[] }>
+    gdal_translate(dataset: GDALDataset, args?: string[], dest?: string | null): Promise<{ local: string; real: string; all: unknown[] }>
+    ogr2ogr(dataset: GDALDataset, args?: string[], dest?: string | null): Promise<{ local: string; real: string; all: unknown[] }>
     getFileBytes(file: { local: string } | string): Promise<Uint8Array>
-    drivers: { raster: Record<string, any>; vector: Record<string, any> }
+    drivers: { raster: Record<string, unknown>; vector: Record<string, unknown> }
   }
 
   export interface InitOptions {

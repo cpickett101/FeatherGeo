@@ -88,7 +88,7 @@ export class GDALService {
 
     const { datasets, errors } = await this.gdal.open(file)
     if (!datasets.length) {
-      throw new Error(`Failed to open GeoJSON for conversion: ${errors[0]?.message ?? 'unknown'}`)
+      throw new Error(`Failed to open GeoJSON for conversion: ${(errors[0] as GDALError)?.message ?? 'unknown'}`)
     }
 
     const result = await this.gdal.ogr2ogr(datasets[0], ['-f', 'ESRI Shapefile'], `${baseName}.shp`)
@@ -133,10 +133,10 @@ export class GDALService {
 
   async processKML(file: File): Promise<GeoJSON.FeatureCollection> {
     const { datasets, errors } = await this.gdal.open(file)
-    const realErrors = errors.filter((e: GDALError) => e.no !== 0)
+    const realErrors = errors.filter((e): e is GDALError => (e as GDALError).no !== 0)
     if (realErrors.length) console.error('GDAL errors:', realErrors)
     if (!datasets.length) {
-      throw new Error(`Failed to open KML: ${errors[0]?.message ?? 'unknown error'}`)
+      throw new Error(`Failed to open KML: ${(errors[0] as GDALError)?.message ?? 'unknown error'}`)
     }
     const dataset: GDALDataset = datasets[0]
     const result = await this.gdal.ogr2ogr(dataset, [
@@ -168,13 +168,13 @@ export class GDALService {
 
     const { datasets, errors } = await this.gdal.open(dataTransfer.files)
 
-    const realErrors = errors.filter((e: GDALError) => e.no !== 0)
+    const realErrors = errors.filter((e): e is GDALError => (e as GDALError).no !== 0)
     if (realErrors.length) {
       console.error('GDAL errors:', realErrors)
     }
     
     if (!datasets.length) {
-      throw new Error(`Failed to open shapefile: ${errors[0]?.message ?? 'unknown error'}`)
+      throw new Error(`Failed to open shapefile: ${(errors[0] as GDALError)?.message ?? 'unknown error'}`)
     }
 
     const dataset: GDALDataset = datasets[0]
@@ -198,7 +198,7 @@ export class GDALService {
     const { datasets, errors } = await this.gdal.open(file)
 
     if (errors.length || !datasets.length) {
-      throw new Error(`Failed to open file: ${errors[0]?.message ?? 'unknown error'}`)
+      throw new Error(`Failed to open file: ${(errors[0] as GDALError)?.message ?? 'unknown error'}`)
     }
 
     const dataset: GDALDataset = datasets[0]
@@ -211,7 +211,7 @@ export class GDALService {
       timestamp: Date.now()
     }))
 
-    const info = await this.gdal.getInfo(dataset)
+    const info = await this.gdal.getInfo(dataset) as (GDALInfoCorners & { bandCount?: number }) | undefined
     const bounds = this.getBoundsFromInfo(info, dataset)
 
     await this.gdal.close(dataset)

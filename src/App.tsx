@@ -261,7 +261,7 @@ export function App() {
       setCurrentDataSynced(updated)
     }
     setFeaturePopup(null)
-  }, [currentData])
+  }, [])
 
   const estimateSize = useCallback((data: FeatureCollection | null): string => {
     if (!data) return '0 B'

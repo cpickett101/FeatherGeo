@@ -4,5 +4,5 @@ export interface GDALDataset {
   type: string
   width?: number
   height?: number
-  info?: any
+  info?: unknown
 }
