@@ -22,12 +22,14 @@ type PolygonFeature = Feature<Polygon | MultiPolygon>
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
   const [showSettingsTray, setShowSettingsTray] = useState(false)
-  const [currentData, setCurrentData] = useState<FeatureCollection | null>(() => {
+  const initialData = (() => {
     if (!storage.getSettings().localSaveEnabled) return null
     const session = storage.loadLastSession()
     return session ? session.data : null
-  })
-  const [previousData, setPreviousData] = useState<FeatureCollection | null>(null)
+  })()
+  const [currentData, setCurrentData] = useState<FeatureCollection | null>(initialData)
+  const currentDataRef = useRef<FeatureCollection | null>(initialData)
+  const [undoStack, setUndoStack] = useState<FeatureCollection[]>([])
   const [sourceFileName, setSourceFileName] = useState<string>(() => {
     if (!storage.getSettings().localSaveEnabled) return 'feathergeo'
     const session = storage.loadLastSession()
@@ -41,12 +43,32 @@ export function App() {
   const [localSaveEnabled, setLocalSaveEnabled] = useState<boolean>(storage.getSettings().localSaveEnabled)
   const mapRef = useRef<MapWithDropzoneRef>(null)
   const settingsTrayRef = useRef<HTMLDivElement>(null)
+  const settingsBtnRef = useRef<HTMLButtonElement>(null)
+  const navRef = useRef<HTMLDivElement>(null)
 
-  // Close settings tray when clicking outside
+  // Redirect vertical wheel scroll to horizontal on the nav toolbar
+  useEffect(() => {
+    const el = navRef.current
+    if (!el) return
+    const handler = (e: WheelEvent) => {
+      // Only redirect if there's vertical scroll and no horizontal scroll already
+      if (e.deltaY !== 0 && e.deltaX === 0) {
+        e.preventDefault()
+        el.scrollLeft += e.deltaY
+      }
+    }
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
+
+  // Close settings tray when clicking outside (but not the toggle button itself)
   useEffect(() => {
     if (!showSettingsTray) return
     const handler = (e: MouseEvent) => {
-      if (settingsTrayRef.current && !settingsTrayRef.current.contains(e.target as Node)) {
+      if (
+        settingsTrayRef.current && !settingsTrayRef.current.contains(e.target as Node) &&
+        settingsBtnRef.current && !settingsBtnRef.current.contains(e.target as Node)
+      ) {
         setShowSettingsTray(false)
       }
     }
@@ -61,8 +83,15 @@ export function App() {
     }
   }, [currentData, sourceFileName, localSaveEnabled])
 
-  const handleSourceDataLoaded = useCallback((data: FeatureCollection, fileName?: string) => {
+  // Keep ref in sync with state so closures always read the latest value
+  const setCurrentDataSynced = (data: FeatureCollection | null) => {
+    currentDataRef.current = data
     setCurrentData(data)
+  }
+
+  const handleSourceDataLoaded = useCallback((data: FeatureCollection, fileName?: string) => {
+    setUndoStack([])
+    setCurrentDataSynced(data)
     if (fileName) {
       const base = fileName.replace(/\.[^.]+$/, '')
       setSourceFileName(base)
@@ -73,7 +102,9 @@ export function App() {
   }, [])
 
   const handleDataProcessed = (data: FeatureCollection) => {
-    setPreviousData(currentData)
+    const snapshot = currentDataRef.current
+    if (snapshot) setUndoStack(prev => [...prev, snapshot])
+    currentDataRef.current = data
     setCurrentData(data)
     if (mapRef.current) {
       mapRef.current.updateMap(data)
@@ -110,11 +141,12 @@ export function App() {
   }, [currentData])
 
   const handleUndo = () => {
-    if (!previousData) return
-    setCurrentData(previousData)
-    setPreviousData(null)
+    if (!undoStack.length) return
+    const previous = undoStack[undoStack.length - 1]
+    setUndoStack(prev => prev.slice(0, -1))
+    setCurrentDataSynced(previous)
     if (mapRef.current) {
-      mapRef.current.updateMap(previousData)
+      mapRef.current.updateMap(previous)
     }
   }
 
@@ -190,18 +222,28 @@ export function App() {
     if (activeTool === tool) {
       setActiveTool(null)
     } else {
-      const button = event.currentTarget
-      const rect = button.getBoundingClientRect()
-      setToolPanelPosition({ 
-        left: rect.left,
-        top: rect.bottom
-      })
+      const isMobile = window.innerWidth <= 860
+      if (isMobile) {
+        // Center the panel on mobile
+        setToolPanelPosition({
+          left: Math.max(8, (window.innerWidth - 296) / 2),
+          top: 60,
+        })
+      } else {
+        const button = event.currentTarget
+        const rect = button.getBoundingClientRect()
+        setToolPanelPosition({ 
+          left: rect.left,
+          top: rect.bottom
+        })
+      }
       setActiveTool(tool)
     }
   }
 
   const [showExportTray, setShowExportTray] = useState(false)
   const [exportBusy, setExportBusy] = useState<string | null>(null)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [featurePopup, setFeaturePopup] = useState<{ properties: Record<string, unknown>; pixel: [number, number] } | null>(null)
 
   const handleFeatureClick = useCallback((properties: Record<string, unknown>, pixel: [number, number]) => {
@@ -215,8 +257,8 @@ export function App() {
   const handleDeleteFeature = useCallback(() => {
     const updated = mapRef.current?.deleteSelectedFeature()
     if (updated) {
-      setPreviousData(currentData)
-      setCurrentData(updated)
+      setUndoStack(prev => currentDataRef.current ? [...prev, currentDataRef.current] : prev)
+      setCurrentDataSynced(updated)
     }
     setFeaturePopup(null)
   }, [currentData])
@@ -365,7 +407,10 @@ export function App() {
             Open Source
           </a>
         </div>
-        <div className="app-nav">
+        <div
+          ref={navRef}
+          className="app-nav"
+        >
           <button 
             className={`tool-button${activeTool === 'buffer' ? ' is-active' : ''}`}
             onClick={(e) => toggleTool('buffer', e)}
@@ -373,7 +418,7 @@ export function App() {
             data-tooltip="Expand features outward by a set distance"
           >
             <i className="fg fg-buffer" />
-            Buffer
+            <span className="btn-label">Buffer</span>
           </button>
           <button 
             className={`tool-button${activeTool === 'simplify' ? ' is-active' : ''}`}
@@ -382,7 +427,7 @@ export function App() {
             data-tooltip="Reduce vertex count while preserving shape"
           >
             <i className="fg fg-simplify" />
-            Simplify
+            <span className="btn-label">Simplify</span>
           </button>
           <button 
             className="tool-button"
@@ -391,7 +436,7 @@ export function App() {
             data-tooltip="Replace each feature with its center point"
           >
             <i className="fg fg-point" />
-            Centroid
+            <span className="btn-label">Centroid</span>
           </button>
           <button 
             className="tool-button"
@@ -400,7 +445,7 @@ export function App() {
             data-tooltip="Wrap all features in the smallest convex polygon"
           >
             <i className="fg fg-convex-hull" />
-            Hull
+            <span className="btn-label">Hull</span>
           </button>
           <button 
             className="tool-button"
@@ -409,29 +454,41 @@ export function App() {
             data-tooltip="Draw a bounding box around each feature"
           >
             <i className="fg fg-bbox" />
-            BBox
+            <span className="btn-label">BBox</span>
           </button>
           <div className="nav-divider"></div>
-          {previousData && (
+          {undoStack.length > 0 && (
             <button
               className="tool-button"
               onClick={handleUndo}
-              data-tooltip="Revert to previous state"
+              data-tooltip={`Revert to previous state (${undoStack.length} step${undoStack.length === 1 ? '' : 's'} available)`}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M3 7v6h6" />
                 <path d="M3 13C5.5 6.5 13 4 19 7.5S23 19 17 21" />
               </svg>
-              Undo
+              <span className="btn-label">Undo</span>
+              <span className="undo-badge">{undoStack.length}</span>
             </button>
           )}
           <div className="nav-divider"></div>
           <button 
+            ref={settingsBtnRef}
             className={`processor-button${showSettingsTray ? ' is-active' : ''}`}
             onClick={() => setShowSettingsTray(!showSettingsTray)}
             data-tooltip="Settings"
           >
             <i className="fg fg-map-options" />
+          </button>
+          <button
+            className={`processor-button${!sidebarOpen ? ' is-active' : ''}`}
+            onClick={() => setSidebarOpen(o => !o)}
+            data-tooltip={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <line x1="9" y1="3" x2="9" y2="21"/>
+            </svg>
           </button>
           <button 
             className={`download-button${showExportTray ? ' is-active' : ''}`}
@@ -439,7 +496,7 @@ export function App() {
             disabled={!hasData}
           >
             <i className="fg fg-layer-download" />
-            Export
+            <span className="btn-label">Export</span>
           </button>
         </div>
       </header>
@@ -623,6 +680,8 @@ export function App() {
           onFeatureClick={handleFeatureClick}
           dataset={currentData}
           measures={datasetMeasures}
+          sidebarCollapsed={!sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(o => !o)}
         />
       </main>
 

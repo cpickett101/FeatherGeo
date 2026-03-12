@@ -258,6 +258,30 @@ a { color: inherit; }
   display: flex;
   gap: 4px;
   align-items: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.2) transparent;
+  flex-shrink: 1;
+  min-width: 0;
+  /* Fade edges to hint at scrollable content */
+  mask-image: linear-gradient(to right, transparent 0px, black 12px, black calc(100% - 12px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0px, black 12px, black calc(100% - 12px), transparent 100%);
+  padding: 0 4px 4px;
+}
+
+.app-nav::-webkit-scrollbar {
+  height: 3px;
+}
+
+.app-nav::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.app-nav::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.25);
+  border-radius: 999px;
 }
 
 .nav-divider {
@@ -265,6 +289,7 @@ a { color: inherit; }
   height: 24px;
   background: rgba(255,255,255,0.1);
   margin: 0 8px;
+  flex-shrink: 0;
 }
 
 /* ── Toolbar Buttons ───────────────────────────────── */
@@ -285,9 +310,27 @@ a { color: inherit; }
   justify-content: center;
   gap: 5px;
   position: relative;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .tool-button i { font-size: 1.05em; }
+
+.undo-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+}
 
 .tool-button[data-tooltip]::after {
   content: attr(data-tooltip);
@@ -365,6 +408,8 @@ a { color: inherit; }
   gap: 5px;
   position: relative;
   box-shadow: 0 2px 8px rgba(79, 70, 229, 0.4);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .download-button i { font-size: 1.05em; }
@@ -395,6 +440,7 @@ a { color: inherit; }
   justify-content: center;
   font-size: 1.05rem;
   position: relative;
+  flex-shrink: 0;
 }
 
 .processor-button i { font-size: 1em; }
@@ -461,7 +507,6 @@ a { color: inherit; }
 }
 
 .tool-panel { min-width: 280px; }
-
 .tool-panel-content {
   display: flex;
   flex-direction: column;
@@ -526,11 +571,14 @@ a { color: inherit; }
   background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
   animation: fadeSlideDown 0.15s ease-out;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .export-tray-inner {
   display: flex;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .export-card {
@@ -642,6 +690,11 @@ a { color: inherit; }
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  transition: grid-template-columns 250ms ease;
+}
+
+.map-workspace:has(.import-panel.is-hidden) {
+  grid-template-columns: 0px minmax(0, 1fr);
 }
 
 /* ── Import Panel (sidebar) ────────────────────────── */
@@ -669,6 +722,13 @@ a { color: inherit; }
   border-right: 1px solid var(--c-border);
   box-shadow: none;
   backdrop-filter: none;
+  transition: opacity 250ms ease;
+}
+
+.import-panel.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  overflow: hidden;
 }
 
 .panel-mobile-handle {
@@ -698,6 +758,58 @@ a { color: inherit; }
 .panel-section {
   padding: 16px 20px;
   border-bottom: 1px solid var(--c-border);
+}
+
+.panel-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-collapse-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), color var(--transition);
+}
+
+.panel-collapse-btn:hover {
+  background: var(--c-surface-dim);
+  color: var(--c-text);
+}
+
+.sidebar-reopen-btn {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 20;
+  appearance: none;
+  border: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: none;
+  color: var(--c-text-muted);
+  cursor: pointer;
+  padding: 10px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  transition: background var(--transition), color var(--transition);
+}
+
+.sidebar-reopen-btn:hover {
+  background: var(--c-surface-dim);
+  color: var(--c-text);
 }
 
 .panel-section:last-child { border-bottom: none; }
@@ -1036,6 +1148,7 @@ a { color: inherit; }
 
 /* ── Map Area ──────────────────────────────────────── */
 .map-stage {
+  position: relative;
   min-width: 0;
   height: 100%;
   overflow: hidden;
@@ -1343,43 +1456,47 @@ a { color: inherit; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* ── Hide header links on tablet and smaller ────────── */
+@media (max-width: 1024px) {
+  .app-header-links {
+    display: none;
+  }
+}
+
 /* ── Responsive ────────────────────────────────────── */
 @media (max-width: 860px) {
   .app-header {
-    padding: 8px 12px;
-    height: auto;
-    flex-wrap: wrap;
-    row-gap: 8px;
-  }
-
-  .app-header-links {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    order: 2;
+    padding: 0 12px;
+    height: 52px;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
 
   .app-nav {
-    width: 100%;
-    order: 3;
+    flex: 1;
     overflow-x: auto;
-    padding-bottom: 4px;
-    gap: 6px;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 0 4px;
+    gap: 2px;
+    justify-content: flex-end;
   }
 
   .app-nav .tool-button,
   .app-nav .download-button,
   .app-nav .processor-button {
-    height: 44px;
-    min-width: 44px;
-    padding: 0 10px;
+    height: 36px;
+    min-width: 36px;
+    padding: 0 8px;
     font-size: 0.72rem;
-    border-radius: 10px;
+    border-radius: 8px;
+    flex-shrink: 0;
   }
 
-  .app-nav .tool-button {
-    flex-direction: column;
-    gap: 2px;
+  /* Suppress tooltips on touch devices */
+  .tool-button[data-tooltip]::after,
+  .tool-button[data-tooltip]::before {
+    display: none;
   }
 
   .app-content {
@@ -1392,11 +1509,11 @@ a { color: inherit; }
   }
 
   .map-stage {
-    height: calc(100vh - 120px);
+    height: calc(100dvh - 52px);
   }
 
   .map-canvas {
-    min-height: calc(100vh - 120px);
+    min-height: calc(100dvh - 52px);
   }
 
   .import-panel {
@@ -1404,7 +1521,7 @@ a { color: inherit; }
     left: 0;
     right: 0;
     bottom: 0;
-    max-height: 70vh;
+    max-height: 70dvh;
     border-right: none;
     border-top: 1px solid var(--c-border);
     border-radius: 16px 16px 0 0;
@@ -1416,7 +1533,7 @@ a { color: inherit; }
   }
 
   .import-panel.is-collapsed {
-    transform: translateY(calc(100% - 64px));
+    transform: translateY(calc(100% - 56px));
   }
 
   .panel-mobile-handle {
@@ -1463,9 +1580,101 @@ a { color: inherit; }
     bottom: 20px;
     left: 10px;
   }
+
+  /* Export tray: stack cards vertically on mobile */
+  .export-tray {
+    top: 52px;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px;
+    gap: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: calc(100dvh - 52px);
+  }
+
+  .export-tray-inner {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .export-card {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Settings tray: full width on mobile */
+  .settings-tray {
+    left: 0;
+    right: 0;
+    width: 100%;
+    min-width: 0;
+    top: 52px;
+  }
+
+  /* Tool panel: ensure it doesn't overflow viewport */
+  .tool-panel-overlay {
+    max-width: calc(100vw - 16px);
+  }
+
+  .tool-panel {
+    min-width: 0;
+    width: 100%;
+  }
+
+  /* Feature popup: constrain on mobile */
+  .feature-popup {
+    max-width: calc(100vw - 24px);
+  }
+
+  /* Nav dividers take less space */
+  .nav-divider {
+    margin: 0 4px;
+  }
 }
 
-/* ── Panel Attribution ─────────────────────────────── */
+/* ── Hide button labels at medium-small screens ─────── */
+@media (max-width: 680px) {
+  .app-nav .btn-label {
+    display: none;
+  }
+
+  .app-nav .tool-button,
+  .app-nav .download-button {
+    padding: 0 8px;
+  }
+}
+
+/* ── Very small screens (< 400px) ──────────────────── */
+@media (max-width: 400px) {
+  .app-logo-text {
+    font-size: 0.95rem;
+  }
+
+  .app-nav .tool-button,
+  .app-nav .download-button,
+  .app-nav .processor-button {
+    padding: 0 10px;
+    height: 42px;
+    min-width: 42px;
+  }
+
+  .app-nav .tool-button i,
+  .app-nav .download-button i,
+  .app-nav .processor-button i {
+    font-size: 1.5em;
+  }
+
+  .app-nav .tool-button svg,
+  .app-nav .download-button svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .nav-divider {
+    display: none;
+  }
+}
 .panel-attribution {
   margin-top: auto;
   padding: 12px 20px;
@@ -1491,7 +1700,7 @@ a { color: inherit; }
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
   min-width: 200px;
-  max-width: 320px;
+  max-width: min(320px, calc(100vw - 24px));
   max-height: 360px;
   display: flex;
   flex-direction: column;
@@ -1860,6 +2069,6 @@ a { color: inherit; }
   left: auto;
   right: 0;
   width: auto;
-  min-width: 320px;
+  min-width: min(320px, 100vw);
   justify-content: flex-start;
 }

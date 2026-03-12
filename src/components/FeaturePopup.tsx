@@ -10,11 +10,16 @@ interface FeaturePopupProps {
 export function FeaturePopup({ properties, pixel, onClose, onDelete }: FeaturePopupProps) {
   const entries = Object.entries(properties).filter(([, v]) => v !== null && v !== undefined && v !== '')
 
-  // Keep popup inside viewport
+  // Keep popup inside viewport with safe margins
+  const popupW = Math.min(320, window.innerWidth - 24)
+  const popupH = 360
+  const left = Math.min(pixel[0] + 12, window.innerWidth - popupW - 8)
+  const top = Math.min(pixel[1] + 12, window.innerHeight - popupH - 8)
+
   const style: React.CSSProperties = {
     position: 'fixed',
-    left: pixel[0] + 12,
-    top: pixel[1] + 12,
+    left: Math.max(8, left),
+    top: Math.max(8, top),
     zIndex: 500,
   }
 

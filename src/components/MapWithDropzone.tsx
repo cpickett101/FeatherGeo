@@ -67,6 +67,8 @@ interface MapWithDropzoneProps {
   onFeatureClick?: (properties: Record<string, unknown>, pixel: [number, number]) => void
   dataset?: FeatureCollection | null
   measures?: { areaSqKm: number; lengthKm: number }
+  sidebarCollapsed?: boolean
+  onToggleSidebar?: () => void
 }
 
 export interface MapWithDropzoneRef {
@@ -89,7 +91,7 @@ const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 const KML_EXTENSIONS = ['.kml', '.kmz']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures, sidebarCollapsed, onToggleSidebar }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -132,6 +134,14 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       }
     }
   }, [])
+
+  // After the sidebar CSS transition (250ms), tell OL to recalculate map size
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      mapInstance.current?.updateSize()
+    }, 260)
+    return () => clearTimeout(timer)
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     if (!mapRef.current) return
@@ -393,6 +403,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   }
 
   const displayGeoJSON = useCallback((geojson: FeatureCollection, options?: { animate?: boolean }) => {
+    if (!geojson?.features) return
     const animate = options?.animate !== false
     const map = mapInstance.current
     if (!map) return
@@ -737,7 +748,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
 
   return (
     <section className="map-workspace">
-      <aside className={`panel import-panel${panelCollapsed && isMobile ? ' is-collapsed' : ''}`}>
+      <aside className={`panel import-panel${panelCollapsed && isMobile ? ' is-collapsed' : ''}${sidebarCollapsed && !isMobile ? ' is-hidden' : ''}`}>
         <div className="panel-mobile-handle">
           <button
             type="button"
@@ -750,7 +761,22 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           </button>
         </div>
         <div className="panel-section">
-          <p className="panel-kicker">Import</p>
+          <div className="panel-section-header">
+            <p className="panel-kicker">Import</p>
+            {onToggleSidebar && (
+              <button
+                type="button"
+                className="panel-collapse-btn"
+                onClick={onToggleSidebar}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+            )}
+          </div>
           <h2>Shapefile / GeoJSON</h2>
         </div>
 
@@ -879,6 +905,19 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       </aside>
 
       <div className="map-stage">
+        {sidebarCollapsed && onToggleSidebar && (
+          <button
+            type="button"
+            className="sidebar-reopen-btn"
+            onClick={onToggleSidebar}
+            aria-label="Open sidebar"
+            title="Open sidebar"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        )}
         <div className="map-surface">
           {isProcessing && (
             <div className="processing-banner">Converting shapefile to map features...</div>
