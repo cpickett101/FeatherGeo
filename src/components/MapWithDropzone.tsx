@@ -87,6 +87,7 @@ type ImportStatusTone = 'neutral' | 'success' | 'error'
 
 const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.shp.xml']
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
+const KML_EXTENSIONS = ['.kml', '.kmz']
 
 const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
@@ -101,7 +102,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [isDragging, setIsDragging] = useState(false)
   const dragCounterRef = useRef(0)
   const [isProcessing, setIsProcessing] = useState(false)
-  const [status, setStatus] = useState('Select or drop a shapefile or GeoJSON file to render it on the map.')
+  const [status, setStatus] = useState('Select or drop a shapefile, GeoJSON, or KMZ/KML file to render it on the map.')
   const [statusTone, setStatusTone] = useState<ImportStatusTone>('neutral')
   const [loadedFiles, setLoadedFiles] = useState<string[]>([])
   const [featureCount, setFeatureCount] = useState(0)
@@ -484,6 +485,49 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       return
     }
 
+    // Check for KMZ/KML file
+    const kmlFile = files.find(file =>
+      KML_EXTENSIONS.some(ext => file.name.toLowerCase().endsWith(ext))
+    )
+
+    if (kmlFile) {
+      setIsProcessing(true)
+      setStatusTone('neutral')
+      setStatus(`Reading ${kmlFile.name}...`)
+      setLoadedFiles([kmlFile.name])
+      try {
+        let fileToProcess = kmlFile
+        // KMZ is a zip containing a KML — extract it first
+        if (kmlFile.name.toLowerCase().endsWith('.kmz')) {
+          setStatus('Extracting KMZ...')
+          const zip = await JSZip.loadAsync(kmlFile)
+          const kmlEntry = Object.entries(zip.files).find(([name]) => name.toLowerCase().endsWith('.kml'))
+          if (!kmlEntry) throw new Error('No KML file found inside KMZ archive')
+          const blob = await kmlEntry[1].async('blob')
+          fileToProcess = new File([blob], kmlEntry[0].split('/').pop() || 'doc.kml', { type: 'application/vnd.google-earth.kml+xml' })
+        }
+        const gdal = await GDALService.getInstance()
+        const result = await gdal.processKML(fileToProcess)
+        if (!result.features?.length) throw new Error('No features found in KML')
+        displayGeoJSON(result)
+        onDataLoaded?.(result, kmlFile.name)
+        setFeatureCount(result.features.length)
+        setGeometrySummary(summarizeGeometry(result.features))
+        setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
+        setStatusTone('success')
+        if (isMobile) setPanelCollapsed(true)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error'
+        setFeatureCount(0)
+        setGeometrySummary('Import failed')
+        setStatus(`KMZ/KML import failed: ${message}`)
+        setStatusTone('error')
+      } finally {
+        setIsProcessing(false)
+      }
+      return
+    }
+
     // Check if there's a zip file
     const zipFile = files.find(file => file.name.toLowerCase().endsWith('.zip'))
     
@@ -730,7 +774,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             ref={fileInputRef}
             className="sr-only"
             type="file"
-            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj,.shp.xml,.zip,.geojson,.json"
+            accept=".shp,.dbf,.shx,.prj,.cpg,.qpj,.shp.xml,.zip,.geojson,.json,.kml,.kmz"
             multiple
             onChange={handleFileSelection}
           />
@@ -807,6 +851,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             <p className="stat-label">File requirements</p>
             <ul className="guidance-list">
               <li>GeoJSON: drop a .geojson or .json file</li>
+              <li>KML/KMZ: drop a .kml or .kmz file</li>
               <li>Shapefile required: .shp (geometry) + .shx (index)</li>
               <li>Recommended: .dbf (attributes)</li>
               <li>Optional: .prj (projection), .cpg (encoding)</li>

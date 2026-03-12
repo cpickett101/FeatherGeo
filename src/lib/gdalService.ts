@@ -121,6 +121,45 @@ export class GDALService {
     return files
   }
 
+  async exportToKMZ(geojson: GeoJSON.FeatureCollection, baseName = 'export'): Promise<Uint8Array> {
+    const JSZip = (await import('jszip')).default
+
+    const kml = geojsonToKML(geojson, baseName)
+    const zip = new JSZip()
+    zip.file('doc.kml', kml)
+    const blob = await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' })
+    return blob
+  }
+
+  async processKML(file: File): Promise<GeoJSON.FeatureCollection> {
+    const { datasets, errors } = await this.gdal.open(file)
+    const realErrors = errors.filter((e: GDALError) => e.no !== 0)
+    if (realErrors.length) console.error('GDAL errors:', realErrors)
+    if (!datasets.length) {
+      throw new Error(`Failed to open KML: ${errors[0]?.message ?? 'unknown error'}`)
+    }
+    const dataset: GDALDataset = datasets[0]
+    const result = await this.gdal.ogr2ogr(dataset, [
+      '-f', 'GeoJSON',
+      '-t_srs', 'EPSG:4326',
+      '-skipfailures',
+    ])
+    await this.gdal.close(dataset)
+    if (result?.real) {
+      const bytes = await this.gdal.getFileBytes(result.real)
+      const text = new TextDecoder().decode(bytes)
+      try {
+        const fc = JSON.parse(text) as GeoJSON.FeatureCollection
+        // Filter out features with null/empty geometry (label layers produce these)
+        fc.features = fc.features.filter(f => f.geometry != null)
+        return fc
+      } catch {
+        throw new Error('Failed to parse GeoJSON output from KML')
+      }
+    }
+    throw new Error('No output file generated from KML')
+  }
+
   async processShapefile(files: File[]): Promise<GeoJSON.FeatureCollection> {
     const dataTransfer = new DataTransfer()
     for (const file of files) {
@@ -203,4 +242,75 @@ export class GDALService {
     const h = dataset.height ?? 0
     return [[0, 0], [w, 0], [w, h], [0, h], [0, 0]]
   }
+}
+
+function coordsToKML(coords: number[][]): string {
+  return coords.map(c => `${c[0]},${c[1]}${c[2] != null ? `,${c[2]}` : ''}`).join(' ')
+}
+
+function geometryToKML(geom: GeoJSON.Geometry): string {
+  switch (geom.type) {
+    case 'Point':
+      return `<Point><coordinates>${geom.coordinates[0]},${geom.coordinates[1]}</coordinates></Point>`
+    case 'MultiPoint':
+      return geom.coordinates.map(c => `<Point><coordinates>${c[0]},${c[1]}</coordinates></Point>`).join('')
+    case 'LineString':
+      return `<LineString><coordinates>${coordsToKML(geom.coordinates)}</coordinates></LineString>`
+    case 'MultiLineString':
+      return geom.coordinates.map(c => `<LineString><coordinates>${coordsToKML(c)}</coordinates></LineString>`).join('')
+    case 'Polygon':
+      return `<Polygon><outerBoundaryIs><LinearRing><coordinates>${coordsToKML(geom.coordinates[0])}</coordinates></LinearRing></outerBoundaryIs>${
+        geom.coordinates.slice(1).map(r => `<innerBoundaryIs><LinearRing><coordinates>${coordsToKML(r)}</coordinates></LinearRing></innerBoundaryIs>`).join('')
+      }</Polygon>`
+    case 'MultiPolygon':
+      return `<MultiGeometry>${geom.coordinates.map(poly =>
+        `<Polygon><outerBoundaryIs><LinearRing><coordinates>${coordsToKML(poly[0])}</coordinates></LinearRing></outerBoundaryIs>${
+          poly.slice(1).map(r => `<innerBoundaryIs><LinearRing><coordinates>${coordsToKML(r)}</coordinates></LinearRing></innerBoundaryIs>`).join('')
+        }</Polygon>`
+      ).join('')}</MultiGeometry>`
+    case 'GeometryCollection':
+      return `<MultiGeometry>${geom.geometries.map(geometryToKML).join('')}</MultiGeometry>`
+    default:
+      return ''
+  }
+}
+
+function geojsonToKML(fc: GeoJSON.FeatureCollection, name: string): string {
+  const styles = `
+  <Style id="poly-style">
+    <LineStyle><color>ffE54F46</color><width>2</width></LineStyle>
+    <PolyStyle><color>26E54F46</color></PolyStyle>
+  </Style>
+  <Style id="line-style">
+    <LineStyle><color>ffE54F46</color><width>2</width></LineStyle>
+    <PolyStyle><fill>0</fill></PolyStyle>
+  </Style>
+  <Style id="point-style">
+    <IconStyle>
+      <color>ffE54F46</color>
+      <scale>0.8</scale>
+      <Icon><href>https://maps.google.com/mapfiles/kml/shapes/placemark_circle.png</href></Icon>
+    </IconStyle>
+  </Style>`
+
+  const placemarks = fc.features.map((f, i) => {
+    const label = (f.properties?.name ?? f.properties?.NAME ?? f.properties?.id ?? `Feature ${i + 1}`) as string
+    const desc = f.properties
+      ? Object.entries(f.properties).map(([k, v]) => `${k}: ${v}`).join('\n')
+      : ''
+    const geomKML = f.geometry ? geometryToKML(f.geometry) : ''
+    const geomType = f.geometry?.type ?? ''
+    const styleUrl = geomType.includes('Point') ? '#point-style'
+      : geomType.includes('Line') ? '#line-style'
+      : '#poly-style'
+    return `<Placemark><name>${label}</name><description><![CDATA[${desc}]]></description><styleUrl>${styleUrl}</styleUrl>${geomKML}</Placemark>`
+  }).join('\n')
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document><name>${name}</name>
+${styles}
+${placemarks}
+</Document>
+</kml>`
 }

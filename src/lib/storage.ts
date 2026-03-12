@@ -5,10 +5,12 @@ export type UnitSystem = 'metric' | 'imperial'
 
 export interface AppSettings {
   unitSystem: UnitSystem
+  localSaveEnabled: boolean
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
-  unitSystem: 'metric'
+  unitSystem: 'metric',
+  localSaveEnabled: true
 }
 
 const LAST_SESSION_KEY = 'feathergeo-last-session'

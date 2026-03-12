@@ -23,11 +23,13 @@ export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
   const [showSettingsTray, setShowSettingsTray] = useState(false)
   const [currentData, setCurrentData] = useState<FeatureCollection | null>(() => {
+    if (!storage.getSettings().localSaveEnabled) return null
     const session = storage.loadLastSession()
     return session ? session.data : null
   })
   const [previousData, setPreviousData] = useState<FeatureCollection | null>(null)
   const [sourceFileName, setSourceFileName] = useState<string>(() => {
+    if (!storage.getSettings().localSaveEnabled) return 'feathergeo'
     const session = storage.loadLastSession()
     return session ? session.fileName : 'feathergeo'
   })
@@ -36,14 +38,28 @@ export function App() {
   const [simplifyTolerance, setSimplifyTolerance] = useState(0.01)
   const [toolPanelPosition, setToolPanelPosition] = useState({ left: 0, top: 0 })
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(storage.getSettings().unitSystem)
+  const [localSaveEnabled, setLocalSaveEnabled] = useState<boolean>(storage.getSettings().localSaveEnabled)
   const mapRef = useRef<MapWithDropzoneRef>(null)
+  const settingsTrayRef = useRef<HTMLDivElement>(null)
 
-  // Persist last session to cookie-like localStorage on every data change
+  // Close settings tray when clicking outside
   useEffect(() => {
-    if (currentData && currentData.features.length > 0) {
+    if (!showSettingsTray) return
+    const handler = (e: MouseEvent) => {
+      if (settingsTrayRef.current && !settingsTrayRef.current.contains(e.target as Node)) {
+        setShowSettingsTray(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showSettingsTray])
+
+  // Persist last session to localStorage on every data change (if enabled)
+  useEffect(() => {
+    if (localSaveEnabled && currentData && currentData.features.length > 0) {
       storage.saveLastSession(currentData, sourceFileName)
     }
-  }, [currentData, sourceFileName])
+  }, [currentData, sourceFileName, localSaveEnabled])
 
   const handleSourceDataLoaded = useCallback((data: FeatureCollection, fileName?: string) => {
     setCurrentData(data)
@@ -275,6 +291,34 @@ export function App() {
     }
   }, [currentData, sourceFileName])
 
+  const downloadAsKMZ = useCallback(async () => {
+    if (!currentData || !currentData.features.length) return
+    setExportBusy('kmz')
+    try {
+      const { GDALService } = await import('./lib/gdalService')
+      const gdal = await GDALService.getInstance()
+      const rand = Math.floor(Math.random() * 9000 + 1000)
+      const exportBase = `${sourceFileName}_exported_${rand}`
+      const kmzBytes = await gdal.exportToKMZ(currentData, exportBase)
+
+      const blob = new Blob([new Uint8Array(kmzBytes)], { type: 'application/vnd.google-earth.kmz' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${exportBase}.kmz`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      URL.revokeObjectURL(url)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error'
+      alert(`KMZ export failed: ${message}. Try GeoJSON instead.`)
+    } finally {
+      setExportBusy(null)
+      setShowExportTray(false)
+    }
+  }, [currentData, sourceFileName])
+
   const hasData = currentData && currentData.features.length > 0
 
   return (
@@ -401,7 +445,7 @@ export function App() {
       </header>
 
       {showSettingsTray && (
-        <div className="export-tray">
+        <div className="export-tray settings-tray" ref={settingsTrayRef}>
           <div className="export-tray-inner">
             <div className="export-card" style={{ cursor: 'default', padding: '16px' }}>
               <span className="export-card-info" style={{ width: '100%' }}>
@@ -413,7 +457,6 @@ export function App() {
                     const newSystem = e.target.value as UnitSystem
                     setUnitSystem(newSystem)
                     storage.setSettings({ unitSystem: newSystem })
-                    // Force re-render of measurements
                     if (mapRef.current && currentData) {
                       mapRef.current.updateMap(currentData)
                     }
@@ -428,9 +471,33 @@ export function App() {
                 </span>
               </span>
             </div>
+            <div className="export-card" style={{ cursor: 'default', padding: '16px' }}>
+              <span className="export-card-info" style={{ width: '100%' }}>
+                <span className="export-card-format" style={{ fontWeight: 'normal' }}>Local Save</span>
+                <span className="export-card-meta" style={{ display: 'block', marginTop: '4px' }}>
+                  Restore your last session on next visit
+                </span>
+              </span>
+              <label className="toggle-switch" aria-label="Enable local save">
+                <input
+                  type="checkbox"
+                  checked={localSaveEnabled}
+                  onChange={(e) => {
+                    const enabled = e.target.checked
+                    setLocalSaveEnabled(enabled)
+                    storage.setSettings({ localSaveEnabled: enabled })
+                    if (!enabled) storage.clearLastSession()
+                  }}
+                />
+                <span className="toggle-slider" />
+              </label>
+            </div>
           </div>
-          <button className="export-tray-dismiss" onClick={() => setShowSettingsTray(false)}>
-            Close
+          <button className="tray-close-x" onClick={() => setShowSettingsTray(false)} aria-label="Close settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
       )}
@@ -443,7 +510,12 @@ export function App() {
               onClick={downloadAsGeoJSON}
               disabled={!!exportBusy}
             >
-              <span className="export-card-icon">{ }</span>
+              <span className="export-card-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                </svg>
+              </span>
               <span className="export-card-info">
                 <span className="export-card-format" style={{ fontWeight: 'normal' }}>GeoJSON</span>
                 <span className="export-card-meta">{estimateSize(currentData)} · {currentData!.features.length} features</span>
@@ -461,6 +533,18 @@ export function App() {
                 <span className="export-card-meta">.zip bundle · via GDAL</span>
               </span>
               <span className="export-card-action">{exportBusy === 'shp' ? 'Converting…' : 'Download'}</span>
+            </button>
+            <button
+              className={`export-card${exportBusy === 'kmz' ? ' is-busy' : ''}`}
+              onClick={downloadAsKMZ}
+              disabled={!!exportBusy}
+            >
+              <span className="export-card-icon">.kmz</span>
+              <span className="export-card-info">
+                <span className="export-card-format" style={{ fontWeight: 'normal' }}>KMZ</span>
+                <span className="export-card-meta">Google Earth · via GDAL</span>
+              </span>
+              <span className="export-card-action">{exportBusy === 'kmz' ? 'Converting…' : 'Download'}</span>
             </button>
           </div>
           <button className="export-tray-dismiss" onClick={() => setShowExportTray(false)}>
