@@ -1,10 +1,14 @@
 import { lazy, Suspense, useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import MapWithDropzone, { type MapWithDropzoneRef } from './components/MapWithDropzone'
 import { FeaturePopup } from './components/FeaturePopup'
 import type { Feature, FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon } from 'geojson'
 import * as turf from '@turf/turf'
 import { storage, UnitSystem } from './lib/storage'
 import { getDistanceUnit, convertDistanceToKm } from './lib/units'
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore
+import allEpsg from 'epsg-index/all.json'
 
 // Lazy load GDAL only when needed
 const GeoProcessor = lazy(() =>
@@ -18,6 +22,114 @@ type OperationParams = {
 }
 
 type PolygonFeature = Feature<Polygon | MultiPolygon>
+
+interface EpsgEntry { code: string; name: string; area?: string }
+const EPSG_MAP = allEpsg as Record<string, EpsgEntry>
+const ALL_EPSG: EpsgEntry[] = Object.values(EPSG_MAP)
+const COMMON_EPSG = ['4326','3857','32632','32633','27700','2154','25832','4269','3035']
+  .map(c => EPSG_MAP[c]).filter(Boolean)
+
+function CRSPanel({ currentEpsg, onConfirm }: { currentEpsg: string | null; onConfirm: (code: string) => void }) {
+  const [query, setQuery] = useState('')
+  const [selected, setSelected] = useState<string>(currentEpsg ?? '4326')
+  const [confirmed, setConfirmed] = useState(!!currentEpsg)
+  const [placeQuery, setPlaceQuery] = useState('')
+
+  const placeResults = useMemo(() => {
+    const q = placeQuery.trim().toLowerCase()
+    if (!q) return []
+    return ALL_EPSG
+      .filter(e => e.area && e.area.toLowerCase().includes(q))
+      .slice(0, 25)
+  }, [placeQuery])
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return COMMON_EPSG
+    return ALL_EPSG.filter(e => e.code.includes(q) || e.name.toLowerCase().includes(q)).slice(0, 60)
+  }, [query])
+
+  return (
+    <div className="crs-panel" style={{ padding: '10px 4px 4px' }}>
+      <p className="processor-hint" style={{ marginBottom: 6 }}>
+        Geojson and Shapefile Files will be reprojected from WGS84 so it correctly in QGIS or ArcGIS.
+        {currentEpsg && <span className="crs-active-badge"> EPSG:{currentEpsg} active</span>}
+      </p>
+
+      {/* Place lookup */}
+      <input
+        className="processor-input"
+        style={{ width: '100%', marginBottom: 6 }}
+        type="search"
+        placeholder="Lookup by place or country…"
+        value={placeQuery}
+        onChange={e => setPlaceQuery(e.target.value)}
+      />
+      {placeResults.length > 0 && (
+        <div className="crs-list" role="listbox" aria-label="Place CRS suggestions" style={{ marginBottom: 10 }}>
+          {placeResults.map(entry => (
+            <button
+              key={entry.code}
+              role="option"
+              aria-selected={selected === entry.code}
+              className={`crs-option${selected === entry.code ? ' is-selected' : ''}`}
+              onClick={() => { setSelected(entry.code); setConfirmed(false); setPlaceQuery('') }}
+            >
+              <span className="crs-code">EPSG:{entry.code}</span>
+              <span className="crs-name">{entry.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {placeQuery && placeResults.length === 0 && (
+        <p className="crs-empty" style={{ marginBottom: 8 }}>No CRS found for "{placeQuery}"</p>
+      )}
+
+      {/* Manual EPSG search */}
+      <input
+        className="processor-input"
+        style={{ width: '100%', marginBottom: 8 }}
+        type="search"
+        placeholder="Search EPSG code or name…"
+        value={query}
+        onChange={e => { setQuery(e.target.value); setConfirmed(false) }}
+      />
+      <div className="crs-list" role="listbox" aria-label="CRS options">
+        {results.length === 0 && <div className="crs-empty">No results for "{query}"</div>}
+        {results.map(entry => (
+          <button
+            key={entry.code}
+            role="option"
+            aria-selected={selected === entry.code}
+            className={`crs-option${selected === entry.code ? ' is-selected' : ''}`}
+            onClick={() => { setSelected(entry.code); setConfirmed(false) }}
+          >
+            <span className="crs-code">EPSG:{entry.code}</span>
+            <span className="crs-name">{entry.name}</span>
+          </button>
+        ))}
+      </div>
+      {EPSG_MAP[selected] && (
+        <p className="processor-hint" style={{ marginTop: 6 }}>
+          Selected: EPSG:{selected} — {EPSG_MAP[selected].name}
+        </p>
+      )}
+      {confirmed && (
+        <p className="crs-confirmed">✓ CRS set to EPSG:{selected} — {EPSG_MAP[selected]?.name ?? ''}</p>
+      )}
+      <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+        <button className="primary-button" style={{ flex: 1 }} onClick={() => { onConfirm(selected); setConfirmed(true) }}>
+          Set CRS
+        </button>
+        {currentEpsg && (
+          <button className="secondary-button" onClick={() => { onConfirm('4326'); setSelected('4326'); setConfirmed(false) }}>
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 export function App() {
   const [isProcessorOpen, setIsProcessorOpen] = useState(false)
@@ -245,6 +357,8 @@ export function App() {
   const [exportBusy, setExportBusy] = useState<string | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [featurePopup, setFeaturePopup] = useState<{ properties: Record<string, unknown>; pixel: [number, number] } | null>(null)
+  const [sourceCrs, setSourceCrs] = useState<string | null>(null)
+  const [showCrsPicker, setShowCrsPicker] = useState(false)
 
   const handleFeatureClick = useCallback((properties: Record<string, unknown>, pixel: [number, number]) => {
     if (Object.keys(properties).length === 0) {
@@ -276,11 +390,19 @@ export function App() {
     return `${sourceFileName}_exported_${rand}.${ext}`
   }, [sourceFileName])
 
-  const downloadAsGeoJSON = useCallback(() => {
+  const downloadAsGeoJSON = useCallback(async () => {
     if (!currentData || !currentData.features.length) return
     setExportBusy('geojson')
     try {
-      const dataStr = JSON.stringify(currentData, null, 2)
+      let dataStr: string
+      if (sourceCrs && sourceCrs !== '4326') {
+        const { GDALService } = await import('./lib/gdalService')
+        const gdal = await GDALService.getInstance()
+        const reprojected = await gdal.exportToGeoJSON(currentData, sourceCrs)
+        dataStr = JSON.stringify(reprojected, null, 2)
+      } else {
+        dataStr = JSON.stringify(currentData, null, 2)
+      }
       const blob = new Blob([dataStr], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -290,11 +412,14 @@ export function App() {
       link.click()
       document.body.removeChild(link)
       URL.revokeObjectURL(url)
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Unknown error'
+      alert(`GeoJSON export failed: ${message}`)
     } finally {
       setExportBusy(null)
       setShowExportTray(false)
     }
-  }, [currentData, makeExportName])
+  }, [currentData, makeExportName, sourceCrs])
 
   const downloadAsShapefile = useCallback(async () => {
     if (!currentData || !currentData.features.length) return
@@ -307,7 +432,8 @@ export function App() {
       const gdal = await GDALService.getInstance()
       const rand = Math.floor(Math.random() * 9000 + 1000)
       const exportBase = `${sourceFileName}_exported_${rand}`
-      const shpFiles = await gdal.exportToShapefile(currentData, exportBase)
+      // If a source CRS is set, reproject the export back to that CRS
+      const shpFiles = await gdal.exportToShapefile(currentData, exportBase, sourceCrs ?? undefined)
 
       const zip = new JSZip()
       const folder = zip.folder(exportBase)!
@@ -331,7 +457,7 @@ export function App() {
       setExportBusy(null)
       setShowExportTray(false)
     }
-  }, [currentData, sourceFileName])
+  }, [currentData, sourceFileName, sourceCrs])
 
   const downloadAsKMZ = useCallback(async () => {
     if (!currentData || !currentData.features.length) return
@@ -475,7 +601,7 @@ export function App() {
           <button 
             ref={settingsBtnRef}
             className={`processor-button${showSettingsTray ? ' is-active' : ''}`}
-            onClick={() => setShowSettingsTray(!showSettingsTray)}
+            onClick={() => { setShowSettingsTray(!showSettingsTray); setShowExportTray(false) }}
             data-tooltip="Settings"
           >
             <i className="fg fg-map-options" />
@@ -492,7 +618,7 @@ export function App() {
           </button>
           <button 
             className={`download-button${showExportTray ? ' is-active' : ''}`}
-            onClick={() => setShowExportTray(!showExportTray)}
+            onClick={() => { setShowExportTray(!showExportTray); setShowSettingsTray(false) }}
             disabled={!hasData}
           >
             <i className="fg fg-layer-download" />
@@ -549,6 +675,23 @@ export function App() {
                 <span className="toggle-slider" />
               </label>
             </div>
+            <div className="export-card" style={{ cursor: 'default', padding: '16px' }}>
+              <span className="export-card-info" style={{ width: '100%' }}>
+                <span className="export-card-format" style={{ fontWeight: 'normal' }}>Projection / CRS</span>
+                <span className="export-card-meta" style={{ display: 'block', marginTop: '4px' }}>
+                  {sourceCrs && sourceCrs !== '4326'
+                    ? `EPSG:${sourceCrs} — ${EPSG_MAP[sourceCrs]?.name ?? ''}`
+                    : 'WGS84 (default)'}
+                </span>
+              </span>
+              <button
+                className="secondary-button"
+                style={{ flexShrink: 0 }}
+                onClick={() => { setShowSettingsTray(false); setShowCrsPicker(true) }}
+              >
+                {sourceCrs && sourceCrs !== '4326' ? 'Change' : 'Set'}
+              </button>
+            </div>
           </div>
           <button className="tray-close-x" onClick={() => setShowSettingsTray(false)} aria-label="Close settings">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -575,7 +718,10 @@ export function App() {
               </span>
               <span className="export-card-info">
                 <span className="export-card-format" style={{ fontWeight: 'normal' }}>GeoJSON</span>
-                <span className="export-card-meta">{estimateSize(currentData)} · {currentData!.features.length} features</span>
+                <span className="export-card-meta">
+                  {estimateSize(currentData)} · {currentData!.features.length} features
+                  {sourceCrs && sourceCrs !== '4326' ? ` · EPSG:${sourceCrs}` : ''}
+                </span>
               </span>
               <span className="export-card-action">{exportBusy === 'geojson' ? 'Saving…' : 'Download'}</span>
             </button>
@@ -587,7 +733,10 @@ export function App() {
               <span className="export-card-icon">.shp</span>
               <span className="export-card-info">
                 <span className="export-card-format" style={{ fontWeight: 'normal' }}>Shapefile</span>
-                <span className="export-card-meta">.zip bundle · via GDAL</span>
+                <span className="export-card-meta">
+                  .zip bundle · via GDAL
+                  {sourceCrs && sourceCrs !== '4326' ? ` · EPSG:${sourceCrs}` : ''}
+                </span>
               </span>
               <span className="export-card-action">{exportBusy === 'shp' ? 'Converting…' : 'Download'}</span>
             </button>
@@ -604,10 +753,35 @@ export function App() {
               <span className="export-card-action">{exportBusy === 'kmz' ? 'Converting…' : 'Download'}</span>
             </button>
           </div>
+          {sourceCrs && sourceCrs !== '4326' && (
+            <p style={{ flexBasis: '100%', margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--c-accent, #818cf8)', textAlign: 'center' }}>
+              CRS: EPSG:{sourceCrs} — {EPSG_MAP[sourceCrs]?.name ?? ''}
+            </p>
+          )}
           <button className="export-tray-dismiss" onClick={() => setShowExportTray(false)}>
             Cancel
           </button>
         </div>
+      )}
+
+      {showCrsPicker && createPortal(
+        <>
+          <div className="modal-backdrop" onClick={() => setShowCrsPicker(false)} />
+          <div className="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="crs-modal-title">
+            <div className="modal-header">
+              <h2 id="crs-modal-title">Set CRS / Reproject</h2>
+              <button className="modal-close" onClick={() => setShowCrsPicker(false)} aria-label="Close">×</button>
+            </div>
+            <div className="modal-body">
+              <CRSPanel
+                key={sourceCrs ?? 'none'}
+                currentEpsg={sourceCrs}
+                onConfirm={(code) => { setSourceCrs(code === '4326' ? null : code); setShowCrsPicker(false) }}
+              />
+            </div>
+          </div>
+        </>,
+        document.body
       )}
 
       {activeTool && (
@@ -682,6 +856,8 @@ export function App() {
           measures={datasetMeasures}
           sidebarCollapsed={!sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(o => !o)}
+          sourceCrs={sourceCrs}
+          onCrsDetected={(code) => setSourceCrs(code === '4326' ? null : code)}
         />
       </main>
 

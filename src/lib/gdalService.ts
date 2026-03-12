@@ -81,8 +81,69 @@ export class GDALService {
     return null
   }
 
-  async exportToShapefile(geojson: GeoJSON.FeatureCollection, baseName = 'export'): Promise<Map<string, Uint8Array>> {
-    const geojsonStr = JSON.stringify(geojson)
+  async reprojectGeoJSON(geojson: GeoJSON.FeatureCollection, sourceCrs: string): Promise<GeoJSON.FeatureCollection> {
+    // Strip any embedded CRS so GDAL uses our explicit -s_srs instead
+    const { crs: _crs, ...rest } = geojson as GeoJSON.FeatureCollection & { crs?: unknown }
+    const geojsonStr = JSON.stringify(rest)
+    const blob = new Blob([geojsonStr], { type: 'application/json' })
+    const file = new File([blob], 'input.geojson', { type: 'application/json' })
+
+    const { datasets, errors } = await this.gdal.open(file)
+    if (!datasets.length) {
+      throw new Error(`Failed to open GeoJSON for reprojection: ${(errors[0] as GDALError)?.message ?? 'unknown'}`)
+    }
+
+    const result = await this.gdal.ogr2ogr(datasets[0], [
+      '-f', 'GeoJSON',
+      '-s_srs', `EPSG:${sourceCrs}`,
+      '-t_srs', 'EPSG:4326',
+    ])
+    await this.gdal.close(datasets[0])
+
+    if (result?.real) {
+      const bytes = await this.gdal.getFileBytes(result.real)
+      const text = new TextDecoder().decode(bytes)
+      try {
+        return JSON.parse(text) as GeoJSON.FeatureCollection
+      } catch {
+        throw new Error('Failed to parse reprojected GeoJSON')
+      }
+    }
+    throw new Error('No output from GeoJSON reprojection')
+  }
+
+  async exportToGeoJSON(geojson: GeoJSON.FeatureCollection, targetCrs: string): Promise<GeoJSON.FeatureCollection> {
+    const { crs: _crs, ...rest } = geojson as GeoJSON.FeatureCollection & { crs?: unknown }
+    const blob = new Blob([JSON.stringify(rest)], { type: 'application/json' })
+    const file = new File([blob], 'export.geojson', { type: 'application/json' })
+
+    const { datasets, errors } = await this.gdal.open(file)
+    if (!datasets.length) {
+      throw new Error(`Failed to open GeoJSON for export: ${(errors[0] as GDALError)?.message ?? 'unknown'}`)
+    }
+
+    const result = await this.gdal.ogr2ogr(datasets[0], [
+      '-f', 'GeoJSON',
+      '-s_srs', 'EPSG:4326',
+      '-t_srs', `EPSG:${targetCrs}`,
+    ])
+    await this.gdal.close(datasets[0])
+
+    if (result?.real) {
+      const bytes = await this.gdal.getFileBytes(result.real)
+      const text = new TextDecoder().decode(bytes)
+      try {
+        return JSON.parse(text) as GeoJSON.FeatureCollection
+      } catch {
+        throw new Error('Failed to parse reprojected GeoJSON output')
+      }
+    }
+    throw new Error('No output from GeoJSON export reprojection')
+  }
+
+  async exportToShapefile(geojson: GeoJSON.FeatureCollection, baseName = 'export', targetCrs?: string): Promise<Map<string, Uint8Array>> {
+    const { crs: _crs, ...rest } = geojson as GeoJSON.FeatureCollection & { crs?: unknown }
+    const geojsonStr = JSON.stringify(rest)
     const blob = new Blob([geojsonStr], { type: 'application/json' })
     const file = new File([blob], 'export.geojson', { type: 'application/json' })
 
@@ -91,7 +152,12 @@ export class GDALService {
       throw new Error(`Failed to open GeoJSON for conversion: ${(errors[0] as GDALError)?.message ?? 'unknown'}`)
     }
 
-    const result = await this.gdal.ogr2ogr(datasets[0], ['-f', 'ESRI Shapefile'], `${baseName}.shp`)
+    const ogr2ogrArgs = ['-f', 'ESRI Shapefile']
+    if (targetCrs) {
+      ogr2ogrArgs.push('-s_srs', 'EPSG:4326', '-t_srs', `EPSG:${targetCrs}`)
+    }
+
+    const result = await this.gdal.ogr2ogr(datasets[0], ogr2ogrArgs, `${baseName}.shp`)
     await this.gdal.close(datasets[0])
 
     const files = new Map<string, Uint8Array>()
@@ -131,7 +197,7 @@ export class GDALService {
     return blob
   }
 
-  async processKML(file: File): Promise<GeoJSON.FeatureCollection> {
+  async processKML(file: File, sourceCrs?: string): Promise<GeoJSON.FeatureCollection> {
     const { datasets, errors } = await this.gdal.open(file)
     const realErrors = errors.filter((e): e is GDALError => (e as GDALError).no !== 0)
     if (realErrors.length) console.error('GDAL errors:', realErrors)
@@ -139,11 +205,13 @@ export class GDALService {
       throw new Error(`Failed to open KML: ${(errors[0] as GDALError)?.message ?? 'unknown error'}`)
     }
     const dataset: GDALDataset = datasets[0]
-    const result = await this.gdal.ogr2ogr(dataset, [
+    const ogr2ogrArgs = [
       '-f', 'GeoJSON',
       '-t_srs', 'EPSG:4326',
       '-skipfailures',
-    ])
+      ...(sourceCrs ? ['-s_srs', `EPSG:${sourceCrs}`] : []),
+    ]
+    const result = await this.gdal.ogr2ogr(dataset, ogr2ogrArgs)
     await this.gdal.close(dataset)
     if (result?.real) {
       const bytes = await this.gdal.getFileBytes(result.real)
@@ -160,7 +228,7 @@ export class GDALService {
     throw new Error('No output file generated from KML')
   }
 
-  async processShapefile(files: File[]): Promise<GeoJSON.FeatureCollection> {
+  async processShapefile(files: File[], sourceCrs?: string): Promise<GeoJSON.FeatureCollection> {
     const dataTransfer = new DataTransfer()
     for (const file of files) {
       dataTransfer.items.add(file)
@@ -178,7 +246,11 @@ export class GDALService {
     }
 
     const dataset: GDALDataset = datasets[0]
-    const result = await this.gdal.ogr2ogr(dataset, ['-f', 'GeoJSON', '-t_srs', 'EPSG:4326'])
+    const result = await this.gdal.ogr2ogr(dataset, [
+      '-f', 'GeoJSON',
+      '-t_srs', 'EPSG:4326',
+      ...(sourceCrs ? ['-s_srs', `EPSG:${sourceCrs}`] : []),
+    ])
     await this.gdal.close(dataset)
 
     if (result?.real) {

@@ -19,6 +19,20 @@ import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 import { formatArea, formatDistance } from '../lib/units'
 
+/** Try to match a .prj WKT string to an EPSG code via the AUTHORITY tag */
+function parsePrjToEpsg(prjText: string): string | null {
+  const normalized = prjText.trim()
+  const authorityMatch = normalized.match(/AUTHORITY\["EPSG"\s*,\s*"(\d+)"\]\s*\]?\s*$/)
+  if (authorityMatch) return authorityMatch[1]
+  const nameMatch = normalized.match(/^\w+\["([^"]+)"/)
+  if (nameMatch) {
+    // Very basic fallback — WGS 84 variants
+    const name = nameMatch[1].toLowerCase()
+    if (name.includes('wgs') && name.includes('84')) return '4326'
+  }
+  return null
+}
+
 type CanvasGetContext = typeof HTMLCanvasElement.prototype.getContext
 
 const BASEMAPS = [
@@ -69,6 +83,8 @@ interface MapWithDropzoneProps {
   measures?: { areaSqKm: number; lengthKm: number }
   sidebarCollapsed?: boolean
   onToggleSidebar?: () => void
+  sourceCrs?: string | null
+  onCrsDetected?: (code: string) => void
 }
 
 export interface MapWithDropzoneRef {
@@ -91,7 +107,7 @@ const SHAPEFILE_EXTENSIONS = ['.shp', '.dbf', '.shx', '.prj', '.cpg', '.qpj', '.
 const GEOJSON_EXTENSIONS = ['.geojson', '.json']
 const KML_EXTENSIONS = ['.kml', '.kmz']
 
-const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures, sidebarCollapsed, onToggleSidebar }, ref) => {
+const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ onDataLoaded, onFeatureClick, dataset, measures, sidebarCollapsed, onToggleSidebar, sourceCrs, onCrsDetected }, ref) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapInstance = useRef<OLMap | null>(null)
@@ -475,11 +491,19 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         if (!parsed.features || !Array.isArray(parsed.features)) {
           throw new Error('File does not contain a valid GeoJSON FeatureCollection')
         }
-        displayGeoJSON(parsed)
-        onDataLoaded?.(parsed, geojsonFile.name)
-        setFeatureCount(parsed.features.length)
-        setGeometrySummary(summarizeGeometry(parsed.features))
-        setStatus(`Loaded ${parsed.features.length} feature${parsed.features.length === 1 ? '' : 's'} on the map.`)
+        // Reproject if a non-WGS84 source CRS is set
+        let result = parsed
+        if (sourceCrs && sourceCrs !== '4326') {
+          setStatus(`Reprojecting from EPSG:${sourceCrs} to WGS84...`)
+          const gdal = await GDALService.getInstance()
+          result = await gdal.reprojectGeoJSON(parsed, sourceCrs)
+        }
+        displayGeoJSON(result)
+        onDataLoaded?.(result, geojsonFile.name)
+        setFeatureCount(result.features.length)
+        setGeometrySummary(summarizeGeometry(result.features))
+        const crsNote = sourceCrs && sourceCrs !== '4326' ? ` Reprojected from EPSG:${sourceCrs}.` : ''
+        setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.${crsNote}`)
         setStatusTone('success')
         if (isMobile) {
           setPanelCollapsed(true)
@@ -518,7 +542,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           fileToProcess = new File([blob], kmlEntry[0].split('/').pop() || 'doc.kml', { type: 'application/vnd.google-earth.kml+xml' })
         }
         const gdal = await GDALService.getInstance()
-        const result = await gdal.processKML(fileToProcess)
+        const result = await gdal.processKML(fileToProcess, sourceCrs ?? undefined)
         if (!result.features?.length) throw new Error('No features found in KML')
         displayGeoJSON(result)
         onDataLoaded?.(result, kmlFile.name)
@@ -617,16 +641,35 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     setStatus(`Processing ${shapefileFiles.length} file${shapefileFiles.length === 1 ? '' : 's'}...`)
     setLoadedFiles(shapefileFiles.map((file) => file.name))
 
+    // Auto-detect CRS from .prj if user hasn't set one manually
+    let effectiveCrs = sourceCrs
+    let crsDetected: string | null = null
+    const prjFile = shapefileFiles.find(f => f.name.toLowerCase().endsWith('.prj'))
+    if (prjFile && !sourceCrs) {
+      try {
+        const prjText = await prjFile.text()
+        const detected = parsePrjToEpsg(prjText)
+        if (detected) {
+          effectiveCrs = detected
+          crsDetected = detected
+          onCrsDetected?.(detected)
+        }
+      } catch { /* ignore prj read errors */ }
+    }
+
     try {
       const gdal = await GDALService.getInstance()
-      const result = await gdal.processShapefile(shapefileFiles)
+      const result = await gdal.processShapefile(shapefileFiles, effectiveCrs ?? undefined)
 
       if (result && result.features && result.features.length > 0) {
         displayGeoJSON(result)
         onDataLoaded?.(result, shapefileFiles.find(f => f.name.toLowerCase().endsWith('.shp'))?.name)
         setFeatureCount(result.features.length)
         setGeometrySummary(summarizeGeometry(result.features))
-        setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
+        const crsNote = crsDetected
+          ? ` CRS auto-detected: EPSG:${crsDetected}${crsDetected !== '4326' ? ' → WGS84' : ' (WGS84)'}.`
+          : sourceCrs ? ` Using CRS: EPSG:${sourceCrs}.` : ''
+        setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.${crsNote}`)
         setStatusTone('success')
         if (isMobile) {
           setPanelCollapsed(true)
@@ -646,7 +689,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     } finally {
       setIsProcessing(false)
     }
-  }, [displayGeoJSON, onDataLoaded, isMobile])
+  }, [displayGeoJSON, onDataLoaded, isMobile, sourceCrs])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
@@ -865,8 +908,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           </button>
           <button
             type="button"
-            className="secondary-button"
-            onClick={() => setShowDetails(!showDetails)}
+            className={`secondary-button${showDetails ? ' is-active' : ''}`}
+            onClick={() => setShowDetails(v => !v)}
           >
             {showDetails ? 'Hide' : 'Show'} help
           </button>
