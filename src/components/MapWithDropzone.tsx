@@ -18,6 +18,7 @@ import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 import { formatArea, formatDistance } from '../lib/units'
+import { storage, type ViewBookmark } from '../lib/storage'
 
 /** Try to match a .prj WKT string to an EPSG code via the AUTHORITY tag */
 function parsePrjToEpsg(prjText: string): string | null {
@@ -129,6 +130,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [isMobile, setIsMobile] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
   const [cursorCoords, setCursorCoords] = useState<string>('')
+  const [viewBookmarks, setViewBookmarks] = useState<ViewBookmark[]>([])
+  const [showBookmarks, setShowBookmarks] = useState(false)
 
   const onFeatureClickRef = useRef(onFeatureClick)
   useEffect(() => { onFeatureClickRef.current = onFeatureClick }, [onFeatureClick])
@@ -150,6 +153,17 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       }
     }
   }, [])
+
+  useEffect(() => {
+    const stored = storage.getViewBookmarks()
+    if (stored.length > 0) {
+      setViewBookmarks(stored)
+    }
+  }, [])
+
+  useEffect(() => {
+    storage.setViewBookmarks(viewBookmarks)
+  }, [viewBookmarks])
 
   // After the sidebar CSS transition (250ms), tell OL to recalculate map size
   useEffect(() => {
@@ -723,6 +737,47 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     setPanelCollapsed(false)
   }, [])
 
+  const handleSaveView = useCallback(() => {
+    const map = mapInstance.current
+    if (!map) return
+    const view = map.getView()
+    const size = map.getSize()
+    if (!size) return
+
+    const extent = view.calculateExtent(size)
+    const label = `View ${viewBookmarks.length + 1}`
+    const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}`
+
+    const next: ViewBookmark[] = [
+      {
+        id,
+        label,
+        extent: [extent[0], extent[1], extent[2], extent[3]],
+        zoom: view.getZoom() ?? undefined,
+        createdAt: Date.now(),
+      },
+      ...viewBookmarks,
+    ]
+
+    setViewBookmarks(next)
+    setShowBookmarks(true)
+  }, [viewBookmarks])
+
+  const handleApplyView = useCallback((bookmark: ViewBookmark) => {
+    const map = mapInstance.current
+    if (!map) return
+    map.getView().fit(bookmark.extent, {
+      padding: [56, 56, 56, 56],
+      duration: 450,
+    })
+  }, [])
+
+  const handleRemoveView = useCallback((id: string) => {
+    setViewBookmarks((prev) => prev.filter((bookmark) => bookmark.id !== id))
+  }, [])
+
   const [showDetails, setShowDetails] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [selectMode, setSelectMode] = useState(true)
@@ -1021,6 +1076,50 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
               >
                 <i className="fg fg-select-extent" style={{ fontSize: 20 }} />
               </button>
+              <button
+                className="tool-btn"
+                title="Save current view"
+                onClick={handleSaveView}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+              <button
+                className={`tool-btn${showBookmarks ? ' is-active' : ''}`}
+                title={showBookmarks ? 'Hide saved views' : 'Show saved views'}
+                onClick={() => setShowBookmarks((prev) => !prev)}
+                disabled={viewBookmarks.length === 0}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M4 6h16" />
+                  <path d="M4 12h16" />
+                  <path d="M4 18h16" />
+                </svg>
+              </button>
+            </div>
+          )}
+
+          {viewBookmarks.length > 0 && showBookmarks && (
+            <div className="map-bookmarks">
+              <div className="map-bookmarks-header">
+                <span>Saved views</span>
+                <button type="button" className="map-bookmarks-close" onClick={() => setShowBookmarks(false)}>
+                  Hide
+                </button>
+              </div>
+              <ul className="map-bookmarks-list">
+                {viewBookmarks.map((bookmark) => (
+                  <li key={bookmark.id} className="map-bookmarks-item">
+                    <button type="button" onClick={() => handleApplyView(bookmark)}>
+                      {bookmark.label}
+                    </button>
+                    <button type="button" className="map-bookmarks-remove" onClick={() => handleRemoveView(bookmark.id)}>
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
