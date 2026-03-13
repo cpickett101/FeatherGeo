@@ -3,12 +3,19 @@ import { createPortal } from 'react-dom'
 import MapWithDropzone, { type MapWithDropzoneRef } from './components/MapWithDropzone'
 import { FeaturePopup } from './components/FeaturePopup'
 import type { Feature, FeatureCollection, LineString, MultiLineString, MultiPolygon, Polygon } from 'geojson'
-import * as turf from '@turf/turf'
+import turfArea from '@turf/area'
+import turfLength from '@turf/length'
+import turfBuffer from '@turf/buffer'
+import turfSimplify from '@turf/simplify'
+import turfCentroid from '@turf/centroid'
+import turfConvex from '@turf/convex'
+import turfBbox from '@turf/bbox'
+import turfBboxPolygon from '@turf/bbox-polygon'
+import turfPolygonToLine from '@turf/polygon-to-line'
+import { featureCollection as turfFeatureCollection } from '@turf/helpers'
 import { storage, UnitSystem } from './lib/storage'
 import { getDistanceUnit, convertDistanceToKm } from './lib/units'
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore
-import allEpsg from 'epsg-index/all.json'
+
 
 // Lazy load GDAL only when needed
 const GeoProcessor = lazy(() =>
@@ -23,31 +30,50 @@ type OperationParams = {
 
 type PolygonFeature = Feature<Polygon | MultiPolygon>
 
-interface EpsgEntry { code: string; name: string; area?: string }
-const EPSG_MAP = allEpsg as Record<string, EpsgEntry>
-const ALL_EPSG: EpsgEntry[] = Object.values(EPSG_MAP)
-const COMMON_EPSG = ['4326','3857','32632','32633','27700','2154','25832','4269','3035']
-  .map(c => EPSG_MAP[c]).filter(Boolean)
+interface EpsgEntry { code: string; kind: string; name: string; wkt: string | null; proj4: string | null; bbox: number[]; unit: string | null; area: string | null; accuracy: number | null }
+
+let _epsgMap: Record<string, EpsgEntry> | null = null
+async function getEpsgMap(): Promise<Record<string, EpsgEntry>> {
+  if (!_epsgMap) {
+    // @ts-ignore
+    const mod = await import('epsg-index/all.json')
+    _epsgMap = (mod.default ?? mod) as Record<string, EpsgEntry>
+  }
+  return _epsgMap
+}
+
+const COMMON_EPSG_CODES = ['4326','3857','32632','32633','27700','2154','25832','4269','3035']
 
 function CRSPanel({ currentEpsg, onConfirm }: { currentEpsg: string | null; onConfirm: (code: string) => void }) {
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string>(currentEpsg ?? '4326')
   const [confirmed, setConfirmed] = useState(!!currentEpsg)
   const [placeQuery, setPlaceQuery] = useState('')
+  const [epsgMap, setEpsgMap] = useState<Record<string, EpsgEntry> | null>(null)
+  const [allEpsg, setAllEpsg] = useState<EpsgEntry[]>([])
+  const [commonEpsg, setCommonEpsg] = useState<EpsgEntry[]>([])
+
+  useEffect(() => {
+    getEpsgMap().then(map => {
+      setEpsgMap(map)
+      setAllEpsg(Object.values(map))
+      setCommonEpsg(COMMON_EPSG_CODES.map(c => map[c]).filter(Boolean))
+    })
+  }, [])
 
   const placeResults = useMemo(() => {
     const q = placeQuery.trim().toLowerCase()
     if (!q) return []
-    return ALL_EPSG
+    return allEpsg
       .filter(e => e.area && e.area.toLowerCase().includes(q))
       .slice(0, 25)
-  }, [placeQuery])
+  }, [placeQuery, allEpsg])
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return COMMON_EPSG
-    return ALL_EPSG.filter(e => e.code.includes(q) || e.name.toLowerCase().includes(q)).slice(0, 60)
-  }, [query])
+    if (!q) return commonEpsg
+    return allEpsg.filter(e => e.code.includes(q) || e.name.toLowerCase().includes(q)).slice(0, 60)
+  }, [query, allEpsg, commonEpsg])
 
   return (
     <div className="crs-panel" style={{ padding: '10px 4px 4px' }}>
@@ -109,13 +135,13 @@ function CRSPanel({ currentEpsg, onConfirm }: { currentEpsg: string | null; onCo
           </button>
         ))}
       </div>
-      {EPSG_MAP[selected] && (
+      {epsgMap?.[selected] && (
         <p className="processor-hint" style={{ marginTop: 6 }}>
-          Selected: EPSG:{selected} — {EPSG_MAP[selected].name}
+          Selected: EPSG:{selected} — {epsgMap[selected].name}
         </p>
       )}
       {confirmed && (
-        <p className="crs-confirmed">✓ CRS set to EPSG:{selected} — {EPSG_MAP[selected]?.name ?? ''}</p>
+        <p className="crs-confirmed">✓ CRS set to EPSG:{selected} — {epsgMap?.[selected]?.name ?? ''}</p>
       )}
       <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
         <button className="primary-button" style={{ flex: 1 }} onClick={() => { onConfirm(selected); setConfirmed(true) }}>
@@ -232,10 +258,10 @@ export function App() {
     for (const feature of currentData.features) {
       const geometryType = feature.geometry?.type
       if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
-        areaSqKm += turf.area(feature) / 1_000_000
+        areaSqKm += turfArea(feature) / 1_000_000
         try {
-          const outline = turf.polygonToLine(feature as PolygonFeature)
-          lengthKm += turf.length(outline, { units: 'kilometers' })
+          const outline = turfPolygonToLine(feature as PolygonFeature)
+          lengthKm += turfLength(outline, { units: 'kilometers' })
         } catch (_e) {
           // ignore perimeter errors
         }
@@ -243,7 +269,7 @@ export function App() {
       }
       if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
         try {
-          lengthKm += turf.length(feature as Feature<LineString | MultiLineString>, { units: 'kilometers' })
+          lengthKm += turfLength(feature as Feature<LineString | MultiLineString>, { units: 'kilometers' })
         } catch (_e) {
           // ignore length errors
         }
@@ -280,32 +306,32 @@ export function App() {
           const distance = params?.distance ?? bufferDistance
           const distanceKm = convertDistanceToKm(distance)
           processedFeatures = targetFeatures.map(feature => {
-            try { return turf.buffer(feature, distanceKm, { units: 'kilometers' }) } catch { return null }
+            try { return turfBuffer(feature, distanceKm, { units: 'kilometers' }) } catch { return null }
           }).filter((f): f is Feature<Polygon | MultiPolygon> => f !== null)
           break
         }
         case 'simplify': {
           const tolerance = params?.tolerance ?? simplifyTolerance
           processedFeatures = targetFeatures.map(feature => {
-            try { return turf.simplify(feature, { tolerance, highQuality: false }) } catch { return feature }
+            try { return turfSimplify(feature, { tolerance, highQuality: false }) } catch { return feature }
           })
           break
         }
         case 'centroid': {
           processedFeatures = targetFeatures.map(feature => {
-            try { return turf.centroid(feature) } catch { return null }
+            try { return turfCentroid(feature) } catch { return null }
           }).filter((f): f is NonNullable<typeof f> => f !== null)
           break
         }
         case 'convexHull': {
-          const col = turf.featureCollection(targetFeatures)
-          const hull = turf.convex(col)
+          const col = turfFeatureCollection(targetFeatures)
+          const hull = turfConvex(col)
           processedFeatures = hull ? [hull] : targetFeatures
           break
         }
         case 'bbox': {
           processedFeatures = targetFeatures.map(feature => {
-            try { return turf.bboxPolygon(turf.bbox(feature)) } catch { return null }
+            try { return turfBboxPolygon(turfBbox(feature)) } catch { return null }
           }).filter((f): f is NonNullable<typeof f> => f !== null)
           break
         }
@@ -317,9 +343,9 @@ export function App() {
       if (hasSelection) {
         // Merge: replace selected features with processed ones, keep the rest
         const unselected = currentData.features.filter((_, i) => !selectedIndices.includes(i))
-        result = turf.featureCollection([...unselected, ...processedFeatures])
+        result = turfFeatureCollection([...unselected, ...processedFeatures])
       } else {
-        result = turf.featureCollection(processedFeatures)
+        result = turfFeatureCollection(processedFeatures)
       }
 
       handleDataProcessed(result)
@@ -358,6 +384,7 @@ export function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [featurePopup, setFeaturePopup] = useState<{ properties: Record<string, unknown>; pixel: [number, number] } | null>(null)
   const [sourceCrs, setSourceCrs] = useState<string | null>(null)
+  const [sourceCrsName, setSourceCrsName] = useState<string>('')
   const [showCrsPicker, setShowCrsPicker] = useState(false)
 
   const handleFeatureClick = useCallback((properties: Record<string, unknown>, pixel: [number, number]) => {
@@ -680,7 +707,7 @@ export function App() {
                 <span className="export-card-format" style={{ fontWeight: 'normal' }}>Projection / CRS</span>
                 <span className="export-card-meta" style={{ display: 'block', marginTop: '4px' }}>
                   {sourceCrs && sourceCrs !== '4326'
-                    ? `EPSG:${sourceCrs} — ${EPSG_MAP[sourceCrs]?.name ?? ''}`
+                    ? `EPSG:${sourceCrs} — ${sourceCrsName}`
                     : 'WGS84 (default)'}
                 </span>
               </span>
@@ -755,7 +782,7 @@ export function App() {
           </div>
           {sourceCrs && sourceCrs !== '4326' && (
             <p style={{ flexBasis: '100%', margin: '4px 0 0', fontSize: '0.72rem', color: 'var(--c-accent, #818cf8)', textAlign: 'center' }}>
-              CRS: EPSG:{sourceCrs} — {EPSG_MAP[sourceCrs]?.name ?? ''}
+              CRS: EPSG:{sourceCrs} — {sourceCrsName}
             </p>
           )}
           <button className="export-tray-dismiss" onClick={() => setShowExportTray(false)}>
@@ -776,7 +803,11 @@ export function App() {
               <CRSPanel
                 key={sourceCrs ?? 'none'}
                 currentEpsg={sourceCrs}
-                onConfirm={(code) => { setSourceCrs(code === '4326' ? null : code); setShowCrsPicker(false) }}
+                onConfirm={(code) => { 
+                  if (code === '4326') { setSourceCrs(null); setSourceCrsName('') }
+                  else { setSourceCrs(code); getEpsgMap().then(m => setSourceCrsName(m[code]?.name ?? '')) }
+                  setShowCrsPicker(false)
+                }}
               />
             </div>
           </div>
@@ -857,7 +888,10 @@ export function App() {
           sidebarCollapsed={!sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(o => !o)}
           sourceCrs={sourceCrs}
-          onCrsDetected={(code) => setSourceCrs(code === '4326' ? null : code)}
+          onCrsDetected={(code) => {
+            if (code === '4326') { setSourceCrs(null); setSourceCrsName('') }
+            else { setSourceCrs(code); getEpsgMap().then(m => setSourceCrsName(m[code]?.name ?? '')) }
+          }}
         />
       </main>
 

@@ -1,6 +1,12 @@
 import { useState, useEffect } from 'react'
 import type { Feature, FeatureCollection, Polygon, MultiPolygon, GeoJsonProperties } from 'geojson'
-import * as turf from '@turf/turf'
+import buffer from '@turf/buffer'
+import simplify from '@turf/simplify'
+import centroid from '@turf/centroid'
+import convex from '@turf/convex'
+import bbox from '@turf/bbox'
+import bboxPolygon from '@turf/bbox-polygon'
+import { featureCollection } from '@turf/helpers'
 import { getDistanceUnit, convertDistanceToKm } from '../lib/units'
 
 function getErrorMessage(error: unknown): string {
@@ -61,55 +67,55 @@ export function GeoProcessor({ onClose, currentData, onDataProcessed }: GeoProce
           const distanceKm = convertDistanceToKm(bufferDistance)
           const buffered = currentData.features.map(feature => {
             try {
-              return turf.buffer(feature, distanceKm, { units: 'kilometers' })
+              return buffer(feature, distanceKm, { units: 'kilometers' })
             } catch (_e) {
               return null
             }
           }).filter(isPolygonFeature)
-          result = turf.featureCollection(buffered)
+          result = featureCollection(buffered)
           break
         }
 
         case 'simplify': {
           const simplified = currentData.features.map(feature => {
             try {
-              return turf.simplify(feature, { tolerance: simplifyTolerance, highQuality: false })
+              return simplify(feature, { tolerance: simplifyTolerance, highQuality: false })
             } catch (_e) {
               return feature
             }
           })
-          result = turf.featureCollection(simplified)
+          result = featureCollection(simplified)
           break
         }
 
         case 'centroid': {
           const centroids = currentData.features.map(feature => {
             try {
-              return turf.centroid(feature)
+              return centroid(feature)
             } catch (_e) {
               return null
             }
           }).filter(f => f !== null)
-          result = turf.featureCollection(centroids)
+          result = featureCollection(centroids)
           break
         }
 
         case 'convexHull': {
-          const hull = turf.convex(currentData)
-          result = hull ? turf.featureCollection([hull]) : currentData
+          const hull = convex(currentData)
+          result = hull ? featureCollection([hull]) : currentData
           break
         }
 
         case 'bbox': {
           const boxes = currentData.features.map(feature => {
             try {
-              const bbox = turf.bbox(feature)
-              return turf.bboxPolygon(bbox)
+              const b = bbox(feature)
+              return bboxPolygon(b)
             } catch (_e) {
               return null
             }
           }).filter(isPolygonOnlyFeature)
-          result = turf.featureCollection(boxes)
+          result = featureCollection(boxes)
           break
         }
 
