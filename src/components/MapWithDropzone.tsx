@@ -18,6 +18,7 @@ import type { FeatureCollection } from 'geojson'
 import { GDALService } from '../lib/gdalService'
 import JSZip from 'jszip'
 import { formatArea, formatDistance } from '../lib/units'
+import { kinks } from '@turf/turf'
 
 type CanvasGetContext = typeof HTMLCanvasElement.prototype.getContext
 
@@ -109,6 +110,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [loadedFiles, setLoadedFiles] = useState<string[]>([])
   const [featureCount, setFeatureCount] = useState(0)
   const [geometrySummary, setGeometrySummary] = useState<string>('No data loaded')
+  const [validationWarnings, setValidationWarnings] = useState<string[]>([])
   const [activeBasemap, setActiveBasemap] = useState<BasemapId>('osm')
   const [isMobile, setIsMobile] = useState(false)
   const [panelCollapsed, setPanelCollapsed] = useState(false)
@@ -458,6 +460,57 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     }
   }, [])
 
+  const hasCoordinates = useCallback((coords: unknown): boolean => {
+    if (!Array.isArray(coords)) return false
+    if (coords.length === 0) return false
+    if (typeof coords[0] === 'number') {
+      return coords.length >= 2
+    }
+    return coords.some(hasCoordinates)
+  }, [])
+
+  const runValidation = useCallback((data: FeatureCollection) => {
+    let missingGeometry = 0
+    let emptyGeometry = 0
+    let selfIntersections = 0
+
+    data.features.forEach((feature) => {
+      const geometry = feature.geometry
+      if (!geometry) {
+        missingGeometry += 1
+        return
+      }
+
+      if (!hasCoordinates(geometry.coordinates)) {
+        emptyGeometry += 1
+      }
+
+      if (geometry.type === 'Polygon' || geometry.type === 'MultiPolygon') {
+        try {
+          const kinked = kinks(feature as never)
+          if (kinked.features.length > 0) {
+            selfIntersections += 1
+          }
+        } catch {
+          // ignore validation errors on malformed polygons
+        }
+      }
+    })
+
+    const warnings: string[] = []
+    if (missingGeometry > 0) {
+      warnings.push(`${missingGeometry} feature${missingGeometry === 1 ? '' : 's'} missing geometry.`)
+    }
+    if (emptyGeometry > 0) {
+      warnings.push(`${emptyGeometry} feature${emptyGeometry === 1 ? '' : 's'} with empty coordinates.`)
+    }
+    if (selfIntersections > 0) {
+      warnings.push(`${selfIntersections} polygon${selfIntersections === 1 ? '' : 's'} with self-intersections.`)
+    }
+
+    setValidationWarnings(warnings)
+  }, [hasCoordinates])
+
   const processFiles = useCallback(async (files: File[]) => {
     // Check for GeoJSON file first
     const geojsonFile = files.find(file =>
@@ -479,6 +532,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         onDataLoaded?.(parsed, geojsonFile.name)
         setFeatureCount(parsed.features.length)
         setGeometrySummary(summarizeGeometry(parsed.features))
+        runValidation(parsed)
         setStatus(`Loaded ${parsed.features.length} feature${parsed.features.length === 1 ? '' : 's'} on the map.`)
         setStatusTone('success')
         if (isMobile) {
@@ -488,6 +542,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         const message = error instanceof Error ? error.message : 'Unknown error'
         setFeatureCount(0)
         setGeometrySummary('Import failed')
+        setValidationWarnings([])
         setStatus(`GeoJSON import failed: ${message}`)
         setStatusTone('error')
       } finally {
@@ -524,6 +579,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         onDataLoaded?.(result, kmlFile.name)
         setFeatureCount(result.features.length)
         setGeometrySummary(summarizeGeometry(result.features))
+        runValidation(result)
         setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
         setStatusTone('success')
         if (isMobile) setPanelCollapsed(true)
@@ -531,6 +587,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         const message = error instanceof Error ? error.message : 'Unknown error'
         setFeatureCount(0)
         setGeometrySummary('Import failed')
+        setValidationWarnings([])
         setStatus(`KMZ/KML import failed: ${message}`)
         setStatusTone('error')
       } finally {
@@ -567,6 +624,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         if (extractedFiles.length === 0) {
           setStatus('No shapefile components found in the zip file.')
           setStatusTone('error')
+          setValidationWarnings([])
           setIsProcessing(false)
           return
         }
@@ -577,6 +635,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         const message = error instanceof Error ? error.message : 'Unknown error'
         setStatus(`Failed to extract zip file: ${message}`)
         setStatusTone('error')
+        setValidationWarnings([])
         setIsProcessing(false)
         return
       }
@@ -590,6 +649,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     if (shapefileFiles.length === 0) {
       setStatus('No shapefile parts detected. Include at least the .shp file and any matching sidecar files.')
       setStatusTone('error')
+      setValidationWarnings([])
       return
     }
 
@@ -597,6 +657,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     if (!hasShp) {
       setStatus('The import needs a .shp file. Add the matching .dbf, .shx, .prj, or .cpg files with it.')
       setStatusTone('error')
+      setValidationWarnings([])
       return
     }
 
@@ -609,6 +670,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     if (!hasShx) {
       setStatus('Missing required .shx file. Shapefiles need both .shp and .shx files (plus .dbf for attributes). Please select all files together.')
       setStatusTone('error')
+      setValidationWarnings([])
       return
     }
 
@@ -626,6 +688,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
         onDataLoaded?.(result, shapefileFiles.find(f => f.name.toLowerCase().endsWith('.shp'))?.name)
         setFeatureCount(result.features.length)
         setGeometrySummary(summarizeGeometry(result.features))
+        runValidation(result)
         setStatus(`Loaded ${result.features.length} feature${result.features.length === 1 ? '' : 's'} on the map.`)
         setStatusTone('success')
         if (isMobile) {
@@ -634,6 +697,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       } else {
         setFeatureCount(0)
         setGeometrySummary('No geometry')
+        setValidationWarnings([])
         setStatus('The shapefile opened, but it did not return any renderable features.')
         setStatusTone('error')
       }
@@ -641,12 +705,13 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       const message = error instanceof Error ? error.message : 'Unknown error'
       setFeatureCount(0)
       setGeometrySummary('Import failed')
+      setValidationWarnings([])
       setStatus(`Import failed: ${message}`)
       setStatusTone('error')
     } finally {
       setIsProcessing(false)
     }
-  }, [displayGeoJSON, onDataLoaded, isMobile])
+  }, [displayGeoJSON, onDataLoaded, isMobile, runValidation])
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault()
@@ -675,6 +740,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     setLoadedFiles([])
     setFeatureCount(0)
     setGeometrySummary('No data loaded')
+    setValidationWarnings([])
     setStatus('Map cleared. Select or drop a shapefile or GeoJSON file to load another dataset.')
     setStatusTone('neutral')
     setPanelCollapsed(false)
@@ -693,6 +759,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       displayGeoJSON(data)
       setFeatureCount(data.features.length)
       setGeometrySummary(summarizeGeometry(data.features))
+      runValidation(data)
       setStatus(`Processed: ${data.features.length} feature${data.features.length === 1 ? '' : 's'} on the map.`)
       setStatusTone('success')
     },
@@ -744,7 +811,7 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
       onFeatureClick?.({} as Record<string, unknown>, [0, 0])
       return updatedGeoJSON
     }
-  }), [displayGeoJSON, onFeatureClick])
+  }), [displayGeoJSON, onFeatureClick, runValidation])
 
   return (
     <section className="map-workspace">
@@ -851,6 +918,21 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
           <div className={`status-card is-${statusTone}`}>
             <span className="status-label">{isProcessing ? 'Working' : statusTone === 'success' ? 'Ready' : 'Issue'}</span>
             <p>{status}</p>
+          </div>
+        )}
+
+        {featureCount > 0 && (
+          <div className="panel-section">
+            <h3>Validation report</h3>
+            {validationWarnings.length === 0 ? (
+              <p className="muted">No issues found.</p>
+            ) : (
+              <ul className="guidance-list">
+                {validationWarnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 
