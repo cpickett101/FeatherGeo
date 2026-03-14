@@ -14,11 +14,20 @@ const DEFAULT_SETTINGS: AppSettings = {
 }
 
 const LAST_SESSION_KEY = 'feathergeo-last-session'
+const VIEW_BOOKMARKS_KEY = 'feathergeo-view-bookmarks'
 
 export interface LastSession {
   data: FeatureCollection
   fileName: string
   savedAt: number
+}
+
+export interface ViewBookmark {
+  id: string
+  label: string
+  extent: [number, number, number, number]
+  zoom?: number
+  createdAt: number
 }
 
 interface CacheMeta {
@@ -54,6 +63,21 @@ export const storage = {
 
   clearLastSession() {
     localStorage.removeItem(LAST_SESSION_KEY)
+  },
+
+  getViewBookmarks(): ViewBookmark[] {
+    const stored = localStorage.getItem(VIEW_BOOKMARKS_KEY)
+    if (!stored) return []
+    try {
+      const parsed = JSON.parse(stored)
+      return Array.isArray(parsed) ? parsed as ViewBookmark[] : []
+    } catch {
+      return []
+    }
+  },
+
+  setViewBookmarks(bookmarks: ViewBookmark[]) {
+    localStorage.setItem(VIEW_BOOKMARKS_KEY, JSON.stringify(bookmarks))
   },
 
   // Settings management

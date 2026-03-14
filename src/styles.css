@@ -1227,6 +1227,82 @@ a { color: inherit; }
   color: #fff;
 }
 
+.tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.map-bookmarks {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  z-index: 10;
+  width: 220px;
+  background: rgba(15, 23, 48, 0.92);
+  color: rgba(255,255,255,0.92);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255,255,255,0.12);
+  padding: 8px;
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(10px);
+}
+
+.map-bookmarks-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.7);
+  margin-bottom: 6px;
+}
+
+.map-bookmarks-close {
+  border: none;
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.map-bookmarks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.map-bookmarks-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-bookmarks-item button {
+  border: none;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.9);
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.map-bookmarks-item button:hover {
+  background: rgba(255,255,255,0.16);
+}
+
+.map-bookmarks-remove {
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  font-size: 0.7rem;
+  padding: 4px 6px;
+}
+
 .basemap-btn {
   padding: 4px 10px;
   font-size: 11px;
@@ -1629,6 +1705,12 @@ a { color: inherit; }
   .map-toolbar {
     top: 10px;
     right: 10px;
+  }
+
+  .map-bookmarks {
+    top: 58px;
+    right: 10px;
+    width: 200px;
   }
 
   .tool-btn {
