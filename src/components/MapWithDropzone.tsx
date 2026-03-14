@@ -132,6 +132,8 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   const [cursorCoords, setCursorCoords] = useState<string>('')
   const [viewBookmarks, setViewBookmarks] = useState<ViewBookmark[]>([])
   const [showBookmarks, setShowBookmarks] = useState(false)
+  const [statsField, setStatsField] = useState<string>('')
+  const [statsFields, setStatsFields] = useState<string[]>([])
 
   const onFeatureClickRef = useRef(onFeatureClick)
   useEffect(() => { onFeatureClickRef.current = onFeatureClick }, [onFeatureClick])
@@ -164,6 +166,27 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
   useEffect(() => {
     storage.setViewBookmarks(viewBookmarks)
   }, [viewBookmarks])
+
+  useEffect(() => {
+    if (!dataset || !dataset.features?.length) {
+      setStatsFields([])
+      setStatsField('')
+      return
+    }
+
+    const fieldSet = new Set<string>()
+    dataset.features.forEach((feature) => {
+      if (feature.properties) {
+        Object.keys(feature.properties).forEach((key) => fieldSet.add(key))
+      }
+    })
+
+    const nextFields = Array.from(fieldSet).sort((a, b) => a.localeCompare(b))
+    setStatsFields(nextFields)
+    if (nextFields.length > 0 && !nextFields.includes(statsField)) {
+      setStatsField(nextFields[0])
+    }
+  }, [dataset, statsField])
 
   // After the sidebar CSS transition (250ms), tell OL to recalculate map size
   useEffect(() => {
@@ -844,6 +867,22 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
     }
   }), [displayGeoJSON, onFeatureClick])
 
+  const statsEntries = (() => {
+    if (!dataset || !statsField) return []
+    const counts = new Map<string, number>()
+    dataset.features.forEach((feature) => {
+      const value = feature.properties?.[statsField]
+      if (value === null || value === undefined || value === '') return
+      if (typeof value === 'object') return
+      const label = String(value)
+      counts.set(label, (counts.get(label) ?? 0) + 1)
+    })
+
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+  })()
+
   return (
     <section className="map-workspace">
       <aside className={`panel import-panel${panelCollapsed && isMobile ? ' is-collapsed' : ''}${sidebarCollapsed && !isMobile ? ' is-hidden' : ''}`}>
@@ -926,6 +965,34 @@ const MapWithDropzone = forwardRef<MapWithDropzoneRef, MapWithDropzoneProps>(({ 
             </div>
           )}
         </div>
+
+        {featureCount > 0 && statsFields.length > 0 && (
+          <div className="panel-section">
+            <div className="panel-section-header">
+              <p className="panel-kicker">Feature stats</p>
+            </div>
+            <label className="select-row">
+              <span>Field</span>
+              <select value={statsField} onChange={(e) => setStatsField(e.target.value)}>
+                {statsFields.map((field) => (
+                  <option key={field} value={field}>{field}</option>
+                ))}
+              </select>
+            </label>
+            {statsEntries.length === 0 ? (
+              <p className="muted">No values found for this field.</p>
+            ) : (
+              <ul className="stats-list">
+                {statsEntries.map(([value, count]) => (
+                  <li key={value}>
+                    <span>{value}</span>
+                    <strong>{count}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
 
         {loadedFiles.length > 0 && (
           <div className="panel-section">
