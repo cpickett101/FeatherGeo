@@ -843,6 +843,50 @@ a { color: inherit; }
 
 .panel-copy, .muted { color: var(--c-text-muted); font-size: 0.85rem; }
 
+.select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--c-text-muted);
+  margin-bottom: 8px;
+}
+
+.select-row select {
+  flex: 1;
+  margin-left: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-dim);
+  color: var(--c-text);
+}
+
+.stats-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stats-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--c-surface-dim);
+  font-size: 0.78rem;
+  color: var(--c-text);
+}
+
+.stats-list strong {
+  color: var(--c-accent);
+}
+
 /* ── Drop Zone ─────────────────────────────────────── */
 .drop-zone {
   position: relative;
